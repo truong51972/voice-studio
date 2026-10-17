@@ -165,7 +165,7 @@ class TaskManager:
         if action not in ("stt", "diarization", "locator", "reference", "reconcile"):
             return None
         from .model_catalog import default_model, descriptors, get_model
-        options = request.inputs.get("options", {})
+        options = request.inputs.get("options") or request.inputs
         if action == "stt":
             return get_model(options["model_id"])
         if action == "diarization":
