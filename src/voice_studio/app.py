@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import multiprocessing as mp
 
 # Keep the local/offline application free from external telemetry.
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
@@ -13,6 +14,7 @@ def main() -> None:
     This function is the canonical application entrypoint used by both the
     installed ``voice-studio`` console script and ``python -m voice_studio``.
     """
+    mp.freeze_support()
     smoke_test = "--smoke-test" in sys.argv
     if smoke_test:
         # CI/build hosts may not expose a desktop display. Qt can still construct

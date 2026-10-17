@@ -74,7 +74,9 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
 
         self.models_button = QPushButton("Models")
         self.models_button.clicked.connect(self._open_models)
-
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setEnabled(False)
+        self.cancel_button.clicked.connect(self._cancel_analysis)
         self.analyze_button = QPushButton("Analyze")
         self.analyze_button.setObjectName("primaryButton")
         self.analyze_button.clicked.connect(self._start_analysis)
@@ -86,6 +88,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         toolbar_layout.addWidget(self.target_label, 1)
         toolbar_layout.addWidget(self.models_button)
         toolbar_layout.addWidget(self.analyze_button)
+        toolbar_layout.addWidget(self.cancel_button)
         root.addWidget(toolbar)
 
         self.root_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -263,6 +266,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         profile_key = str(self.profile.currentData())
 
         self.analyze_button.setEnabled(False)
+        self.cancel_button.setEnabled(True)
         self.analyze_button.setText("Analyzing…")
         self.preview_status.setText("Analyzing speaker tracks…")
         self.summary_label.setText("Embedding target windows and matching references…")
@@ -274,11 +278,20 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
             threshold,
             self.scenario.currentText(),
             profile_key,
+            parent=self,
         )
         self._worker.completed.connect(self._analysis_complete)
         self._worker.failed.connect(self._analysis_failed)
+        self._worker.progress.connect(self.preview_status.setText)
         self._worker.finished.connect(self._analysis_finished)
         self._worker.start()
+
+    @Slot()
+    def _cancel_analysis(self) -> None:
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+            self.preview_status.setText("Analysis cancelled")
+            self.summary_label.setText("Cancelled; no partial results kept.")
 
     @Slot(object)
     def _analysis_complete(self, payload: object) -> None:
@@ -307,6 +320,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
     @Slot()
     def _analysis_finished(self) -> None:
         self.analyze_button.setEnabled(True)
+        self.cancel_button.setEnabled(False)
         self.analyze_button.setText("Analyze")
 
     def _populate_segments(self, bundle: AnalysisBundle) -> None:
@@ -365,6 +379,11 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         except ValueError:
             return
         self._seek_to_seconds(seconds)
+
+    def closeEvent(self, event):
+        if self._worker and self._worker.isRunning():
+            self._worker.cancel()
+        super().closeEvent(event)
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:
