@@ -198,7 +198,7 @@ def main() -> None:
     print("[build] Running packaged executable smoke test...")
     try:
         smoke = subprocess.run(
-            [str(executable), "--smoke-test"],
+            [str(executable), "--smoke-test"] + (["--require-diarization"] if args.with_diarization else []),
             cwd=dist_dir,
             check=False,
             capture_output=True,

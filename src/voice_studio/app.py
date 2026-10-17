@@ -6,6 +6,7 @@ import multiprocessing as mp
 
 # Keep the local/offline application free from external telemetry.
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ['PYANNOTE_METRICS_ENABLED'] = '0'
 
 
 def main() -> None:
@@ -42,6 +43,12 @@ def main() -> None:
     if smoke_test:
         import imageio_ffmpeg  # noqa: F401
         import PySide6  # noqa: F401
+        if '--require-diarization' in sys.argv:
+            # A requested runtime must import in the frozen app, not just the builder.
+            import torch  # noqa: F401
+            import torchaudio  # noqa: F401
+            from pyannote.audio import Pipeline  # noqa: F401
+            print('[smoke] Auto Detect pyannote/Torch runtime imports: OK (model installed separately)')
         # Optional STT runtime sanity test, without model downloads/inference.
         try:
             import faster_whisper  # noqa: F401

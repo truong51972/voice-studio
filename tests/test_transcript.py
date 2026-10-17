@@ -56,6 +56,23 @@ def test_validate_adjacent_merge_only(document):
     with pytest.raises(KeyError):
         document.replace("unknown", text="anything")
 
+
+def test_speaker_provenance_and_review_flags_survive_edit_split_merge_and_restore(document):
+    document.replace('s1', speaker_id='a', rename_speaker=True, speaker_source='diarization')
+    document.replace('s1', text='corrected text')
+    assert document.edited[0].speaker_source == 'diarization'
+    left, right = document.split('s1', 2.)
+    assert all(entry.speaker_source == 'diarization' for entry in document.edited[:2])
+    document.replace(right, speaker_id='b', rename_speaker=True)
+    merged = document.merge(left, right)
+    restored = TranscriptDocument.restore(document.serialize())
+    assert restored.edited[0].speaker_review_required
+    assert restored.edited[0].speaker_source == 'human'
+    assert restored.edited[0].speaker_id is None
+    restored.replace(merged, speaker_id='a', rename_speaker=True)
+    assert not restored.edited[0].speaker_review_required
+    assert restored.edited[0].speaker_source == 'human'
+
 def test_long_transcript_search():
     base = {
         "kind": "stt", "segments": [

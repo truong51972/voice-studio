@@ -62,9 +62,15 @@ boundaries and retain source-relative timestamps. They include overlapping
 transcript segments with timestamps clipped to the range; partially selected
 segments retain their text for human review rather than inventing word cuts.
 Combined SRT uses project timestamps and names each source in its cues. Combined
-JSON retains explicit clip/media IDs, source ranges/project starts, source links
-and raw/reviewed snapshots. Separate source exports also support a chosen range.
-Partially selected segments retain full text for human review. The GUI shares
+JSON is a **selected timeline export**, not a project archive: it retains explicit
+clip/media IDs, fingerprints, source ranges/project starts, source links and only
+the selected reviewed entries. Segment/word times are source-relative; clip
+`timeline_start` is project-relative. Raw transcripts, history and whole-source
+metadata are excluded. Boundary segments include only fully contained timestamped
+words; without word timings their text is omitted, with `text_requires_review`
+set. Separate source JSON range exports use the same policy. Full-source JSON
+still includes raw/reviewed snapshots; back up `.projects` for a full archive.
+The GUI shares
 this time mapping for playback, tracks, reference selection and export.
 
 Manifest/results/reviews use unique temporary files plus atomic replacement.
@@ -76,6 +82,12 @@ Auto/Manual speakers persist across timeline edits. Confirmed project merges
 commit aliases/mappings/references in one manifest write; historical transcript
 IDs resolve through aliases instead of partially rewriting all review files.
 Anonymous cluster numbers from separate files are never treated as identities.
+Splitting a source cluster recalculates affected automatic transcript labels from
+the union of overlapping turns per mapped speaker. Assignment requires at least
+50% of the segment and strictly more than 1.25 times the next speaker's coverage.
+Ties or low coverage clear the automatic label and display **Review speaker**,
+persisted across reopen. Explicit human assignments (including clearing a label)
+and older labels without provenance are preserved. Text corrections are retained.
 
 Task records retain failed/cancelled/interrupted states. Switching projects stops
 and reaps old jobs first; reopening validates source fingerprints asynchronously.

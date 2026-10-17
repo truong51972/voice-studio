@@ -172,6 +172,87 @@ def test_project_summary_has_stable_source_anchors_and_ordered_review_snapshots(
     assert 'source-1.m4a 1.0–3.0s' in summary_markdown(report)
 
 
+def test_selected_json_export_contains_no_excluded_text_or_word_timestamps(tmp_path):
+    project = project_with_sources(tmp_path, 1)
+    item = project.items[0]
+    record = project.queue_analysis(item.id, 'stt', {})
+    project.finish_analysis(record, {'kind': 'stt', 'source': item.source,
+        'text': 'SECRET WHOLE SOURCE METADATA', 'duration': 20., 'segments': [
+            {'id': 'before', 'start': 0., 'end': 2., 'text': 'SECRET BEFORE'},
+            {'id': 'boundary', 'start': 8., 'end': 12., 'text': 'SECRET WORD included', 'words': [
+                {'start': 8., 'end': 9., 'text': 'SECRET WORD'},
+                {'start': 9.5, 'end': 10.5, 'text': 'SECRET CROSSING'},
+                {'start': 10.5, 'end': 11., 'text': ' included'}]},
+            {'id': 'untimed', 'start': 11., 'end': 15., 'text': 'SECRET UNTIMED BOUNDARY'},
+            {'id': 'inside', 'start': 11., 'end': 12., 'text': 'raw inside'},
+            {'id': 'after', 'start': 16., 'end': 18., 'text': 'SECRET AFTER'}]})
+    document = project.review(item.id)
+    document.replace('inside', text='reviewed inside')
+    project.save_review(item.id, document)
+    raw_before = project.analysis_path(record.id).read_bytes()
+    review_before = project._review_path(item).read_bytes()
+    project.trim_clip(project.clips[0].id, 10., 13.)
+    exported = project.combined_export('json')
+    assert 'SECRET' not in exported
+    assert 'raw inside' not in exported
+    clip = json.loads(exported)['clips'][0]
+    assert 'review' not in clip and 'raw' not in clip and 'history' not in clip
+    assert clip['media_id'] == item.id and clip['content_fingerprint'] == item.fingerprint
+    entries = clip['selected_segments']
+    assert entries[0]['text'] == 'included'
+    assert entries[1]['text'] == '' and entries[1]['text_requires_review']
+    assert entries[2]['text'] == 'reviewed inside'
+    for entry in entries:
+        assert 10. <= entry['start'] < entry['end'] <= 13.
+        for word in entry['words']:
+            assert 10. <= word['start'] < word['end'] <= 13.
+    assert project.analysis_path(record.id).read_bytes() == raw_before
+    assert project._review_path(item).read_bytes() == review_before
+
+
+def test_split_cluster_uses_overlap_flags_ambiguity_and_preserves_human_labels_after_reopen(tmp_path):
+    project = project_with_sources(tmp_path, 1)
+    item = project.items[0]
+    record = project.queue_analysis(item.id, 'diarization', {})
+    turns = [dict(start=start, end=end, cluster_id=cluster, speaker_id=cluster, overlap=False)
+             for start, end, cluster in [(0., 2., 'b'), (4., 6., 'a'), (8., 10., 'a'),
+                                         (10., 12., 'a'), (12., 14., 'b'), (15., 16., 'a')]]
+    project.finish_analysis(record, {'kind': 'diarization', 'turns': turns, 'speakers': ['a', 'b']})
+    old = project.cluster_mappings[record.id]['a']
+    project.merge_speakers(old, project.cluster_mappings[record.id]['b'])
+    transcript = project.queue_analysis(item.id, 'stt', {})
+    project.finish_analysis(transcript, {'kind': 'stt', 'segments': [
+        {'id': name, 'start': start, 'end': end, 'text': name}
+        for name, start, end in [('partial', 5., 9.), ('ambiguous', 10., 14.),
+                                 ('sparse', 15., 19.), ('human', 5., 9.), ('cleared', 5., 9.),
+                                 ('legacy', 5., 9.), ('untouched', 0., 2.)]]})
+    document = project.review(item.id)
+    assert all(entry.speaker_id == old for entry in document.edited)
+    document.replace('human', speaker_id=old, rename_speaker=True)
+    document.replace('cleared', speaker_id=None, rename_speaker=True)
+    document.replace('legacy', speaker_id=old, rename_speaker=True, speaker_source=None)
+    document.replace('partial', text='Human text correction')
+    project.save_review(item.id, document)
+    raw_before = project.analysis_path(transcript.id).read_bytes()
+    split = project.split_cluster(record.id, 'a', 'Separate speaker')
+    reopened = ProjectStore(project.directory)
+    entries = {entry.id: entry for entry in reopened.review(item.id).edited}
+    assert entries['partial'].speaker_id == split
+    assert entries['partial'].text == 'Human text correction'
+    assert entries['partial'].speaker_source == 'diarization'
+    for name in ('ambiguous', 'sparse'):
+        assert entries[name].speaker_id is None
+        assert entries[name].speaker_review_required
+    assert entries['human'].speaker_id == old and entries['human'].speaker_source == 'human'
+    assert entries['cleared'].speaker_id is None and entries['cleared'].speaker_source == 'human'
+    assert entries['legacy'].speaker_id == old
+    assert entries['untouched'].speaker_id == old
+    # Applying suggestions later must not undo a review flag or an explicit clear.
+    reopened.attribute_review(item.id)
+    assert {entry.id: entry for entry in reopened.review(item.id).edited} == entries
+    assert project.analysis_path(transcript.id).read_bytes() == raw_before
+
+
 def test_reimport_keeps_speaker_links_and_reference_ids(tmp_path):
     project = project_with_sources(tmp_path, 1)
     item = project.items[0]

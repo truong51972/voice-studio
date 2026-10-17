@@ -1,6 +1,17 @@
 from types import SimpleNamespace
 from voice_studio.diarization import _speaker_turns, attribute_segments
 
+
+def test_dominance_counts_union_and_requires_coverage_and_a_clear_lead():
+    from voice_studio.diarization import dominant_speaker
+    turns = [{'start': 0., 'end': 2., 'speaker_id': 'a'}] * 3
+    turns.append({'start': 2., 'end': 4., 'speaker_id': 'b'})
+    assert dominant_speaker(0., 4., turns) is None  # duplicate tracks cannot create dominance
+    assert dominant_speaker(0., 5., turns[:1]) is None  # less than 50% coverage
+    assert dominant_speaker(0., 4., turns[:1]) == 'a'  # exactly 50% is sufficient without a rival
+    assert dominant_speaker(0., 4., turns + [{'start': 0., 'end': 2.5, 'speaker_id': 'a'}]) is None
+    assert dominant_speaker(0., 4., turns + [{'start': 0., 'end': 2.6, 'speaker_id': 'a'}]) == 'a'
+
 def test_anonymous_speaker_turns_and_overlap_detection():
     class FakeAnnotation:
         def itertracks(self, yield_label=False):

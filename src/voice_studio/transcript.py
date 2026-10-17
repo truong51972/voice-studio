@@ -20,6 +20,8 @@ class TranscriptEntry:
     speaker_id: str | None = None
     language: str | None = None
     words: tuple = ()
+    speaker_source: str | None = None
+    speaker_review_required: bool = False
 
     @classmethod
     def from_dict(cls, row: dict):
@@ -27,6 +29,8 @@ class TranscriptEntry:
             id=str(row["id"]), start=float(row["start"]), end=float(row["end"]),
             text=str(row["text"]), speaker_id=row.get("speaker_id"),
             language=row.get("language"), words=tuple(copy.deepcopy(row.get("words", []))),
+            speaker_source=row.get("speaker_source"),
+            speaker_review_required=bool(row.get("speaker_review_required", False)),
         )
 
     def as_dict(self) -> dict:
@@ -34,6 +38,8 @@ class TranscriptEntry:
             "id": self.id, "start": self.start, "end": self.end,
             "text": self.text, "speaker_id": self.speaker_id,
             "language": self.language, "words": copy.deepcopy(list(self.words)),
+            "speaker_source": self.speaker_source,
+            "speaker_review_required": self.speaker_review_required,
         }
 
 class TranscriptDocument:
@@ -53,13 +59,16 @@ class TranscriptDocument:
         raise KeyError(f"Transcript segment not found: {identifier}")
 
     def replace(self, identifier: str, *, text: str | None = None,
-                speaker_id: str | None = None, rename_speaker: bool = False) -> None:
+                speaker_id: str | None = None, rename_speaker: bool = False,
+                speaker_source: str | None = "human", speaker_review_required: bool = False) -> None:
         i = self._index(identifier)
         old = self.edited[i]
         from dataclasses import replace as dc_replace
         self.edited[i] = dc_replace(
             old, text=old.text if text is None else text,
             speaker_id=(speaker_id if rename_speaker else old.speaker_id),
+            speaker_source=speaker_source if rename_speaker else old.speaker_source,
+            speaker_review_required=speaker_review_required if rename_speaker else old.speaker_review_required,
             # Original word timestamps are no longer valid after an edit.
             words=() if text is not None and text != old.text else old.words,
         )
@@ -94,6 +103,10 @@ class TranscriptDocument:
             text=" ".join(z for z in (x.text.strip(), y.text.strip()) if z),
             speaker_id=x.speaker_id if x.speaker_id == y.speaker_id else None,
             language=x.language if x.language == y.language else None,
+            speaker_source=("human" if "human" in (x.speaker_source, y.speaker_source)
+                            else x.speaker_source if x.speaker_source == y.speaker_source else None),
+            speaker_review_required=(x.speaker_review_required or y.speaker_review_required
+                                     or x.speaker_id != y.speaker_id),
         )
         self.edited[a:b+1] = [merged]
         self._record("merge", [first_id, second_id, merged_id])
@@ -117,6 +130,35 @@ class TranscriptDocument:
             "edited": [s.as_dict() for s in self.edited],
             "revision": self.revision, "history": copy.deepcopy(self.history),
         }
+
+    def selected_export(self, start: float, end: float) -> dict:
+        """A reviewed selection, never a full raw/review archive.
+
+        Segment text cannot be timed within a boundary segment without word
+        timings. Omit that text rather than disclose speech outside the range.
+        """
+        if end <= start:
+            raise ValueError("Choose a valid source selection before exporting")
+        entries = []
+        for entry in self.edited:
+            if entry.end <= start or entry.start >= end:
+                continue
+            row = entry.as_dict()
+            row.update(start=max(start, entry.start), end=min(end, entry.end))
+            words = [dict(start=w['start'], end=w['end'], text=w['text']) for w in entry.words
+                     if row['start'] <= w['start'] < w['end'] <= row['end']]
+            row['words'] = words
+            if entry.start < start or entry.end > end:
+                row['text'] = ''.join(w['text'] for w in words).strip()
+                row['text_requires_review'] = True
+            entries.append(row)
+        # Inference metadata can contain whole-source text/word arrays as well.
+        metadata = {key: copy.deepcopy(self.raw_metadata[key]) for key in
+                    ('source', 'current_source', 'media_id', 'content_fingerprint', 'model_id')
+                    if key in self.raw_metadata}
+        return {**metadata, 'scope': 'source_selection', 'timebase': 'source seconds',
+                'source_in': start, 'source_out': end, 'review_revision': self.revision,
+                'selected_segments': entries}
 
     @classmethod
     def restore(cls, payload: dict) -> "TranscriptDocument":

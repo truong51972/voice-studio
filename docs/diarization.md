@@ -16,7 +16,7 @@ and does not perform unrestricted speaker discovery.
 
 No token is requested, model downloaded or cloud API called by analysis.
 Missing/incompatible runtime/assets produce an error and a retryable project job.
-Packaged builds can explicitly bundle the runtime using `--with-diarization`;
+Default Windows builds bundle the runtime using `--with-diarization`;
 Community-1 assets remain separate. See [Windows release](windows_release.md).
 
 Original `turns` retain overlapping voices for source/annotation tracks.

@@ -72,7 +72,7 @@ models/            local-only model data
 
 ## Scope and release caveats
 
-The manually triggered Windows release-candidate workflow and `one-click.bat` are available, but **Windows packaging, optional CUDA runtime and native media/microphone tests have not yet been signed off**. CI covers model-free Linux/Qt offscreen tests; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
+The manually triggered Windows release-candidate workflow and `one-click.bat` bundle STT and Auto Detect runtimes by default. Install a complete local Community-1 model separately and choose its folder in Speakers. **Windows packaging, optional CUDA runtime and native media/model tests have not yet been signed off**. CI covers model-free Linux/Qt offscreen tests; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
 
 Detailed workflows: [STT](docs/stt.md) · [Transcript](docs/transcript.md) · [Projects](docs/projects.md) · [Diarization](docs/diarization.md) · [Optional local AI drafts](docs/enhancements.md).
 

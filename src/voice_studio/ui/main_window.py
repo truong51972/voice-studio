@@ -304,7 +304,7 @@ class MainWindow(EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
     def _run_diarization(self):
         folder = self.diarization_panel.model_folder.text().strip()
         if not folder or not (Path(folder) / 'config.yaml').is_file():
-            self._status('Choose a complete locally installed Community-1 folder in Speakers. Install optional runtime: uv sync --extra diarization. Manual references do not require pyannote.')
+            self._status('Choose a complete locally installed Community-1 folder in Speakers. Default Windows packages include its runtime; source installs need uv sync --extra diarization. See Help and docs/diarization.md. Manual references do not require pyannote.')
             return
         self._guard(self._queue_targets, 'diarization', {'model_directory': str(Path(folder).resolve())})
 

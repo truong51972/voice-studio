@@ -33,8 +33,10 @@ close the issue when the approved PR is merged. WebApp migration #25 stays defer
   source selection exports and ordered TXT/Markdown/SRT/JSON project exports.
   Local Ollama supports selected-source or ordered project review snapshots with
   source-specific citation anchors; raw transcripts are never replaced.
-- Optional `--with-diarization` packaging path and actionable missing runtime/model
-  errors; no automatic model/token/cloud dependency is introduced.
+- Default Windows one-click/workflow builds include STT and `--with-diarization`
+  runtimes, checked by mandatory packaged pyannote/Torch import smoke. Community-1
+  models are installed separately; no automatic model/token/cloud dependency is
+  introduced. Real native runtime/inference acceptance remains open.
 
 ## Deterministic evidence
 
@@ -44,6 +46,12 @@ imports and bounded source extraction, WAV/FLAC regression, actual stream-based
 media kind, portable roots/permissions, migration/write failures, speaker mappings,
 confirmed aliases/splits, references, cache invalidation, exports, task cancellation,
 project switches and Qt import/trim/reorder/save/reopen flows.
+
+PR review regressions also cover selected JSON exports without excluded raw text,
+metadata or word timestamps; overlap-based cluster splits with persisted review
+flags and preserved human corrections; and default Windows runtime/build-smoke
+policy. The local model-free suite passes **167 tests**. Packaging tests simulate
+build outputs and smoke failure; they do not replace a real Windows build/run.
 
 The 61-minute Locator/STT checks generate synthetic PCM chunks and assert bounded
 windows/timestamps; they do **not** benchmark a real 61-minute recording or model.

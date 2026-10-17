@@ -96,30 +96,43 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None, wor
     }
 
 
+def dominant_speaker(start: float, end: float, turns: list[dict], *, min_coverage: float = .5) -> str | None:
+    """Require coverage and a >1.25x lead; count each speaker's interval union."""
+    intervals: dict[str, list[tuple[float, float]]] = {}
+    for turn in turns:
+        left, right = max(start, turn['start']), min(end, turn['end'])
+        if right > left and turn.get('speaker_id'):
+            intervals.setdefault(turn['speaker_id'], []).append((left, right))
+    coverage = {}
+    for speaker, spans in intervals.items():
+        stop, total = start, 0.
+        for left, right in sorted(spans):
+            total += max(0., right - max(left, stop))
+            stop = max(stop, right)
+        coverage[speaker] = total
+    ranked = sorted(coverage, key=lambda speaker: (-coverage[speaker], speaker))
+    if ranked and coverage[ranked[0]] >= min_coverage * max(end - start, .001):
+        if len(ranked) == 1 or coverage[ranked[0]] > coverage[ranked[1]] * 1.25:
+            return ranked[0]
+    return None
+
+
 def attribute_segments(segments: list[dict], turns: list[dict], *, min_coverage: float = .2) -> list[dict]:
     """Anonymous overlap attribution; uncertain ties remain unassigned.
 
     Does not alter original STT results. This is an editable proposal only.
     """
     result = []
+    clean_turns = [turn for turn in turns if not turn.get('overlap')]
     for segment in segments:
         copy_segment = copy.deepcopy(segment)
         start, end = float(segment["start"]), float(segment["end"])
-        if copy_segment.get("speaker_id"):
+        if (copy_segment.get("speaker_id") or copy_segment.get("speaker_review_required")
+                or copy_segment.get("speaker_source") == "human"):
             result.append(copy_segment)
             continue
-        overlaps: dict[str, float] = {}
-        for turn in turns:
-            if turn.get("overlap"):
-                continue  # ambiguous overlap is left to manual review
-            shared = max(0.0, min(end, turn["end"]) - max(start, turn["start"]))
-            if shared:
-                label = str(turn["speaker_id"])
-                overlaps[label] = overlaps.get(label, 0) + shared
-        ranked = sorted(overlaps.items(), key=lambda x: x[1], reverse=True)
-        length = max(end - start, 0.001)
-        if ranked and ranked[0][1] / length >= min_coverage:
-            if len(ranked) == 1 or ranked[0][1] > ranked[1][1] * 1.25:
-                copy_segment["speaker_id"] = ranked[0][0]
+        speaker = dominant_speaker(start, end, clean_turns, min_coverage=min_coverage)
+        if speaker:
+            copy_segment["speaker_id"] = speaker
         result.append(copy_segment)
     return result

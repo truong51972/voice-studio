@@ -186,7 +186,8 @@ class STTPanel(QWidget):
         self.table.setRowCount(len(self.document.edited))
         for i, s in enumerate(self.document.edited):
             for col, text in enumerate((
-                _fmt_time(s.start), _fmt_time(s.end), self.speaker_names.get(s.speaker_id, s.speaker_id) or "", s.text,
+                _fmt_time(s.start), _fmt_time(s.end),
+                'Review speaker' if s.speaker_review_required else self.speaker_names.get(s.speaker_id, s.speaker_id) or "", s.text,
             )):
                 item = QTableWidgetItem(str(text))
                 if col != 3:
@@ -301,6 +302,7 @@ class STTPanel(QWidget):
             if not old.get("speaker_id") and new.get("speaker_id"):
                 self.document.replace(
                     old["id"], speaker_id=new["speaker_id"], rename_speaker=True,
+                    speaker_source='diarization',
                 )
         self._render()
         self.documentChanged.emit()
@@ -326,10 +328,18 @@ class STTPanel(QWidget):
                 document.raw_metadata.update(current_source=item.source, media_id=item.id, content_fingerprint=item.fingerprint)
         from dataclasses import replace
         document.edited = [replace(s, speaker_id=self.speaker_names.get(s.speaker_id, s.speaker_id)) for s in document.edited]
-        if self.export_selection.isChecked() and self.export_range:
+        if self.export_selection.isChecked():
+            if not self.export_range:
+                self.status.setText("Choose a valid source selection before exporting")
+                return
             start, end = self.export_range
             if end <= start:
                 self.status.setText("Choose a valid source selection before exporting")
+                return
+            if format_name == 'json':
+                import json
+                Path(path).write_text(json.dumps(document.selected_export(start, end), ensure_ascii=False, indent=2), encoding='utf-8')
+                self.status.setText(f'Exported {Path(path).name} (selected source interval only)')
                 return
             document.edited = [replace(s, start=max(s.start, start), end=min(s.end, end)) for s in document.edited if s.end > start and s.start < end]
             document.raw_metadata['export_source_interval'] = [start, end]

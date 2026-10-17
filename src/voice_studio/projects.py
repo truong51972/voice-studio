@@ -344,7 +344,8 @@ class ProjectStore:
         entries = [s.as_dict() for s in document.edited]
         for previous, proposed in zip(entries, attribute_segments(entries, self.mapped_turns(diarization, exclusive=True))):
             if not previous.get("speaker_id") and proposed.get("speaker_id"):
-                document.replace(previous['id'], speaker_id=proposed['speaker_id'], rename_speaker=True)
+                document.replace(previous['id'], speaker_id=proposed['speaker_id'], rename_speaker=True,
+                                 speaker_source='diarization')
         if document.revision:
             self.save_review(media_id, document)
 
@@ -395,6 +396,7 @@ class ProjectStore:
         raise ValueError("Cyclic speaker mapping")
 
     def split_cluster(self, record_id: str, cluster_id: str, name: str) -> str:
+        from .diarization import dominant_speaker
         mapping = self.cluster_mappings[record_id]
         if cluster_id not in mapping:
             raise ValueError("Unknown source cluster")
@@ -406,9 +408,14 @@ class ProjectStore:
         item = self.get(record.media_id)
         if item.status == "completed":
             document = self.review(item.id)
+            mapped = self.mapped_turns(record)
             for entry in list(document.edited):
-                if entry.speaker_id == old_speaker and any(t["start"] <= entry.start and entry.end <= t["end"] for t in turns):
-                    document.replace(entry.id, speaker_id=speaker.id, rename_speaker=True)
+                # Legacy labels without provenance may be human corrections.
+                if (entry.speaker_source == 'diarization' and entry.speaker_id == old_speaker
+                        and any(t['start'] < entry.end and entry.start < t['end'] for t in turns)):
+                    assigned = dominant_speaker(entry.start, entry.end, mapped)
+                    document.replace(entry.id, speaker_id=assigned, rename_speaker=True,
+                                     speaker_source='diarization', speaker_review_required=assigned is None)
             self.save_review(item.id, document)
         self.save()
         return speaker.id
@@ -602,7 +609,9 @@ class ProjectStore:
             if entry.speaker_id in known:
                 canonical = self.speaker(entry.speaker_id).id
                 if canonical != entry.speaker_id:
-                    document.replace(entry.id, speaker_id=canonical, rename_speaker=True)
+                    document.replace(entry.id, speaker_id=canonical, rename_speaker=True,
+                                     speaker_source=entry.speaker_source,
+                                     speaker_review_required=entry.speaker_review_required)
         return document
 
     def save_review(self, identifier: str, document: TranscriptDocument, *, settings_key: str | None = None) -> None:
@@ -628,7 +637,8 @@ class ProjectStore:
             raise ValueError("Choose Markdown, TXT, SRT or JSON")
         if kind in ("srt", "json"):
             mapping = self.timeline()
-            payload = {"project_id": self.id, "name": self.name, "timebase": "project seconds; raw/review times remain source-relative", "clips": []}
+            payload = {"project_id": self.id, "name": self.name, "scope": "selected_timeline",
+                       "timebase": "timeline_start: project seconds; segment/word times: source seconds", "clips": []}
             combined = TranscriptDocument({"kind": "stt", "source": self.name, "segments": []})
             for clip in self.clips:
                 item = self.get(clip.media_id)
@@ -636,11 +646,12 @@ class ProjectStore:
                     continue
                 document = self.export_document(item.id)
                 end = clip.end(item.duration)
+                if kind == 'json':
+                    payload["clips"].append({**document.selected_export(clip.source_in, end),
+                        "clip_id": clip.id, "fingerprint": item.fingerprint,
+                        "timeline_start": mapping.starts[clip.id]})
+                    continue
                 entries = [replace(s, start=max(s.start, clip.source_in), end=min(s.end, end)) for s in document.edited if s.end > clip.source_in and s.start < end]
-                payload["clips"].append({"clip_id": clip.id, "media_id": item.id, "source": item.source,
-                    "fingerprint": item.fingerprint, "source_in": clip.source_in, "source_out": end,
-                    "timeline_start": mapping.starts[clip.id], "review": document.serialize(),
-                    "selected_segments": [s.as_dict() for s in entries]})
                 combined.edited.extend(replace(s, id=clip.id + '-' + s.id,
                     start=mapping.source_to_project(clip.id, s.start), end=mapping.source_to_project(clip.id, s.end),
                     text=f'[{Path(item.source).name}] {s.text}') for s in entries)
