@@ -49,6 +49,7 @@ class DetectionOverlay(QWidget):
         self._position_seconds = 0.0
         self._turns = []
         self._names = {}
+        self._subtitle_names = {}
         self._subtitles = SubtitleIndex()
         self._show_subtitles = True
         self._inside_clip = True
@@ -71,7 +72,7 @@ class DetectionOverlay(QWidget):
     def set_subtitles(self, entries, names=None) -> None:
         self._subtitles.set_entries(entries)
         if names is not None:
-            self._names = names
+            self._subtitle_names = names
         self.update()
 
     def set_show_subtitles(self, value: bool) -> None:
@@ -107,7 +108,7 @@ class DetectionOverlay(QWidget):
         lines = _subtitle_lines(entry.text, metrics, width - 24)
         if not lines:
             return 0
-        speaker = (self._names.get(entry.speaker_id, entry.speaker_id) or "") if not entry.speaker_review_required else ""
+        speaker = (self._subtitle_names.get(entry.speaker_id, entry.speaker_id) or "") if not entry.speaker_review_required else ""
         height = 22 + len(lines) * (metrics.height() + 2) + (metrics.height() if speaker else 0)
         height = min(height, self.height() - 12)
         rect = QRect(18, self.height() - height - 12, self.width() - 36, height)
