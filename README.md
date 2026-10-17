@@ -27,9 +27,8 @@ The [single-PR issue #26 refactor](https://github.com/truong51972/voice-studio/i
 Requires Python 3.11–3.12, [uv](https://docs.astral.sh/uv/) and a compatible Qt desktop. Some Linux distributions need multimedia packages.
 
 ```bash
-uv sync --dev
-# Optional STT dependencies: uv sync --dev --extra stt
-uv run poe models      # download and verify CAM++ / ERes2NetV2 ONNX models
+uv sync --locked
+uv run poe models      # optional developer prefetch only; Settings → Models is the GUI
 uv run poe start       # start desktop UI
 uv run poe test        # unit tests + Qt offscreen tests
 uv run poe check       # compile all Python files
@@ -44,19 +43,18 @@ systems such as WSLg where PipeWire's `client.conf` is missing. An explicit
 
 The speaker ONNX models (approximately 96 MiB total) download only on request, are checked against their SHA-256 and never committed to Git.
 
-Model management: [docs/model_manager.md](docs/model_manager.md). Open **Models** to install and verify assets. To run local transcription, install optional dependencies with `uv sync --dev --extra stt`, then install an STT model using the Model Manager. Model downloads happen only when explicitly requested.
+Model management: [docs/model_manager.md](docs/model_manager.md). **Settings → Models** installs, imports, verifies, repairs and tests readiness; no optional Python extras or CLI model setup for end users. All feature runtimes are installed by a single `uv sync --locked`; weights are downloaded only when requested.
 
 ## Workflow
 
 1. **New/Open/Recent Project**, then **Import media** (multiple recordings). Sources populate the library and ordered timeline without being copied.
 2. Select a source, play/seek across clip boundaries, move/trim clips, zoom/pan or drag/type a source range. Source and project clocks are separate.
-3. Under **Speakers → Auto Detect**, choose a complete locally installed Community-1 folder, then **Auto Detect Speakers**. Install its optional runtime with `uv sync --dev --extra diarization`; no token or automatic model download is used. Toolbar scope selects one source or the whole project.
-4. Optionally **Add manual reference**: preview a clean source interval, choose/type a speaker label, confirm one voice, and add it. Choose a CAM++/ERes2NetV2 profile in **Analysis**, then **Match references**. Manual matching does not require pyannote. Compare project speakers to review merge proposals.
+3. Import a complete local Community-1 folder under **Settings → Models** after accepting the upstream gated terms, test readiness, then select **Process → Auto Detect Speakers**. Toolbar scope chooses the current source or whole project.
 5. Under **STT**, select an installed model/language and **Transcribe**. Review text/speakers, split/merge and export the source/selection; **Export all** follows project clip order and trims.
 6. **Summary** generates explicit source-cited localhost Ollama drafts. **Raw AI** retains immutable inference separately from corrections. **Cancel jobs** stops the shared queue; rerun the task controls or retry a selected reference after fixing an error.
 7. **Save** and reopen: clips, source links, speaker mappings/references, raw results, review revisions and interrupted states persist.
 
-Source checkouts use `<repo>/.projects/` independently of cwd; onedir builds use `<exe-directory>/.projects/`. The portable folder must be writable. Back up the entire `.projects/` folder and external media before upgrades/moves: moving only the app does not move the recordings. Runtime/model cache paths remain separate. See [Projects](docs/projects.md) for backup and migration.
+Source checkouts use `<repo>/.projects/` independently of cwd; onedir builds use `<exe-directory>/.projects/`. The portable folder must be writable. Back up the entire `.projects/` folder and external media before upgrades/moves: moving only the app does not move the recordings. Portable model assets and preferences default to sibling `.models/` and `.settings/` folders. Linked legacy models stay at their original locations and are never deleted by unlink. See [Projects](docs/projects.md) for backup and migration.
 
 ## Repo
 
@@ -67,12 +65,14 @@ src/voice_studio/  desktop UI, media, matching, local services
 scripts/           model download and development build helper
 tests/             audio, similarity, UI, seek, profiles and download regression tests
 assets/            new Voice Studio icon
-models/            local-only model data
+configs/models/    versioned JSON model metadata (packaged with app)
+.models/           portable user model assets (not committed)
+.settings/         portable preferences (not committed)
 ```
 
 ## Scope and release caveats
 
-The manually triggered Windows release-candidate workflow and `one-click.bat` bundle STT and Auto Detect runtimes by default. Install a complete local Community-1 model separately and choose its folder in Speakers. **Windows packaging, optional CUDA runtime and native media/model tests have not yet been signed off**. CI covers model-free Linux/Qt offscreen tests; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
+The manually triggered Windows release-candidate workflow and `one-click.bat` bundle STT and Auto Detect runtimes by default. Install a complete local Community-1 model separately and choose its folder in Speakers. **Windows packaging, optional CUDA runtime and native media/model tests have not yet been signed off**. CI runs model-free Windows/Linux Qt offscreen tests on Python 3.11/3.12; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
 
 Detailed workflows: [STT](docs/stt.md) · [Transcript](docs/transcript.md) · [Projects](docs/projects.md) · [Diarization](docs/diarization.md) · [Optional local AI drafts](docs/enhancements.md).
 
