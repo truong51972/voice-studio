@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame,
 
 from ..pipeline import AnalysisBundle
 from ..profiles import get_inference_profile
+from .model_manager import ModelManagerDialog
 from .panels.locator import LocatorPanelsMixin
 from .resources import _resource_path
 from .theme import APP_STYLESHEET
@@ -71,6 +72,9 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.target_label = QLabel("No media")
         self.target_label.setStyleSheet("color: #9da4ae;")
 
+        self.models_button = QPushButton("Models")
+        self.models_button.clicked.connect(self._open_models)
+
         self.analyze_button = QPushButton("Analyze")
         self.analyze_button.setObjectName("primaryButton")
         self.analyze_button.clicked.connect(self._start_analysis)
@@ -80,6 +84,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         toolbar_layout.addWidget(self.target_mode)
         toolbar_layout.addWidget(choose_target)
         toolbar_layout.addWidget(self.target_label, 1)
+        toolbar_layout.addWidget(self.models_button)
         toolbar_layout.addWidget(self.analyze_button)
         root.addWidget(toolbar)
 
@@ -204,6 +209,11 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         )
         layout.addWidget(browser)
         return page
+
+    @Slot()
+    def _open_models(self) -> None:
+        dialog = ModelManagerDialog(self)
+        dialog.exec()
 
     @Slot()
     def _choose_target(self) -> None:
