@@ -307,7 +307,9 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 model = get_model(options['model_id'])
             else:
                 model = default_model('diarization')
-            blockers = ModelService().preflight(model, device=options.get('device', 'cpu'))
+            blockers = ModelService().preflight(
+                model, device=options.get('device', 'cpu'),
+                compute_type=options.get('compute_type') if task == 'stt' else None)
             if blockers:
                 self._status('; '.join(blockers))
                 self._open_models(model.id)
@@ -580,6 +582,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             'timeline_zoom': self.timeline._zoom, 'timeline_pan': self.timeline._pan,
             'scope': self.scope.currentIndex(), 'speaker_mode': self.speakers_panel.mode.currentIndex(),
             'vad': self.stt_panel.vad.isChecked(), 'word_timestamps': self.stt_panel.words.isChecked(),
+            'stt_device': self.stt_panel.device.currentData(),
+            'stt_precision': self.stt_panel.gpu_precision.currentData(),
             'selection': [self.selection_start.value(), self.selection_end.value()],
             'workspace_sizes': self.workspace_splitter.sizes(), 'timeline_sizes': self.root_splitter.sizes()}
         project.save()

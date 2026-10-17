@@ -170,20 +170,47 @@ class ModelService:
             version = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
             version = "missing"
-        return {"engine": model.engine, "version": version, "python": sys.version.split()[0],
-                "device": device, "compute_type": compute_type or model.inference_defaults.compute_type}
+        signature = {"engine": model.engine, "version": version, "python": sys.version.split()[0],
+                     "device": device, "compute_type": compute_type or model.inference_defaults.compute_type}
+        if device == "cuda":
+            # Invalidate GPU readiness on backend upgrades without affecting legacy CPU probes.
+            for package in ("ctranslate2", "torch"):
+                try:
+                    signature[package] = importlib.metadata.version(package)
+                except importlib.metadata.PackageNotFoundError:
+                    signature[package] = "missing"
+        return signature
 
-    def preflight(self, model: ModelDescriptor, *, device: str = "cpu") -> list[str]:
+    def is_ready(self, model: ModelDescriptor, *, device: str = "cpu",
+                 compute_type: str | None = None) -> bool:
+        """Cheap, device-specific readiness from a successful native probe."""
+        state = self.status(model)
+        if state.state not in ("Installed", "Ready") or device not in model.devices:
+            return False
+        if device == "cpu":
+            return state.ready and (compute_type is None or compute_type == model.inference_defaults.compute_type)
+        if device != "cuda" or model.task != "stt":
+            return False
+        precision = compute_type or "float16"
+        try:
+            record = self._record(model)
+        except (OSError, ValueError, KeyError):
+            return False
+        return record.get("ready_profiles", {}).get(f"cuda:{precision}") == self.runtime_signature(
+            model, device="cuda", compute_type=precision
+        )
+
+    def preflight(self, model: ModelDescriptor, *, device: str = "cpu",
+                  compute_type: str | None = None) -> list[str]:
         state = self.status(model)
         errors = []
-        if device not in model.devices:
+        if device not in model.devices or (device == "cuda" and model.task != "stt"):
             errors.append(f"Unsupported device: {device}")
         if state.state not in ("Installed", "Ready"):
             errors.append(f"{model.label}: {state.state.lower()}. Open Settings → Models to install, import or repair. {state.detail}")
-        elif not state.ready:
-            errors.append(f"{model.label}: run Test readiness in Settings → Models before queueing.")
-        if device != "cpu":
-            errors.append("CUDA requires a separate native inference test; CPU is the supported baseline.")
+        elif not self.is_ready(model, device=device, compute_type=compute_type):
+            profile = f"{device.upper()} / {compute_type or ('float16' if device == 'cuda' else model.inference_defaults.compute_type)}"
+            errors.append(f"{model.label}: {profile} is not verified. Run its device-specific Test readiness in Settings → Models.")
         return errors
 
     def _lock(self, model: ModelDescriptor) -> FileLock:
@@ -284,17 +311,30 @@ class ModelService:
             record.pop("integrity_error", None)
             atomic_json(self.manifest_path(model), record)
 
-    def ready(self, model: ModelDescriptor, *, cancel=None, progress=None) -> None:
+    def ready(self, model: ModelDescriptor, *, device: str = "cpu",
+              compute_type: str | None = None, cancel=None, progress=None) -> None:
+        if device not in model.devices or (device == "cuda" and model.task != "stt"):
+            raise ValueError(f"Unsupported model device: {device}")
+        precision = (compute_type or ("float16" if device == "cuda" else model.inference_defaults.compute_type))
+        if device == "cuda" and precision not in ("float16", "int8_float16"):
+            raise ValueError("CUDA readiness requires float16 or int8_float16.")
+        if device == "cpu" and precision != model.inference_defaults.compute_type:
+            raise ValueError("Unsupported CPU precision for this model.")
         self.verify(model, cancel=cancel, progress=progress)
+        key = f"{device}:{precision}"
         with self.use(model):
             record = self._record(model)
-            record.pop("ready", None)
+            # Preserve independently verified CPU and GPU profiles on failures.
+            if device == "cpu":
+                record.pop("ready", None)
+            else:
+                record.setdefault("ready_profiles", {}).pop(key, None)
             atomic_json(self.manifest_path(model), record)
             command = ([sys.executable, "--model-probe"] if getattr(sys, "frozen", False)
                        else [sys.executable, "-m", "voice_studio.model_backends"])
-            command += [model.id, str(self.path(model))]
+            command += [model.id, str(self.path(model)), device, precision]
             if progress:
-                progress("Loading model and running CPU smoke test…", 0, 0, 0)
+                progress(f"Loading model and running {device.upper()} {precision} smoke test…", 0, 0, 0)
             environment = dict(os.environ, HF_HUB_OFFLINE="1", HF_HUB_DISABLE_TELEMETRY="1", PYANNOTE_METRICS_ENABLED="0")
             with tempfile.TemporaryFile(mode="w+b") as output:
                 process = subprocess.Popen(command, stdout=output, stderr=output, env=environment)
@@ -311,11 +351,19 @@ class ModelService:
                 except BaseException as exc:
                     process.kill()
                     process.wait()
-                    record["readiness_error"] = str(exc)
+                    if device == "cpu":
+                        record["readiness_error"] = str(exc)
+                    else:
+                        record.setdefault("readiness_errors", {})[key] = str(exc)
                     atomic_json(self.manifest_path(model), record)
                     raise
-            record["ready"] = self.runtime_signature(model)
-            record.pop("readiness_error", None)
+            if device == "cpu":
+                record["ready"] = self.runtime_signature(model)
+                record.pop("readiness_error", None)
+            else:
+                record.setdefault("ready_profiles", {})[key] = self.runtime_signature(
+                    model, device=device, compute_type=precision)
+                record.setdefault("readiness_errors", {}).pop(key, None)
             atomic_json(self.manifest_path(model), record)
 
     def install(self, model: ModelDescriptor, *, cancel=None, progress=None) -> Path:

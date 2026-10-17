@@ -42,6 +42,17 @@ class STTPanel(QWidget):
         from ...model_service import ModelService
         self.model.setCurrentIndex(max(0, self.model.findData(ModelService().default_id("stt"))))
         settings.addRow("Model", self.model)
+        self.device = QComboBox()
+        self.device.addItem("Auto · GPU if verified", "auto")
+        self.device.addItem("NVIDIA CUDA", "cuda")
+        self.device.addItem("CPU", "cpu")
+        settings.addRow("Device", self.device)
+        self.gpu_precision = QComboBox()
+        self.gpu_precision.addItem("FP16 · fast", "float16")
+        self.gpu_precision.addItem("INT8 + FP16 · lower VRAM", "int8_float16")
+        settings.addRow("GPU precision", self.gpu_precision)
+        self.device.currentIndexChanged.connect(
+            lambda _index: self.gpu_precision.setEnabled(self.device.currentData() != "cpu"))
         self.models_button = QPushButton("Manage models…")
         self.models_button.clicked.connect(lambda: self.modelsRequested.emit(str(self.model.currentData())))
         settings.addRow(self.models_button)
@@ -117,6 +128,23 @@ class STTPanel(QWidget):
             entry = get_model(str(self.model.itemData(index)))
             self.model.setItemText(index, f"{entry.label} · {service.status(entry).state}")
 
+    def stt_options(self):
+        """Resolve Auto before queueing so cached results record the actual device."""
+        from ...model_service import ModelService
+        from ...stt import STTOptions
+        model_id = str(self.model.currentData())
+        model = get_model(model_id)
+        service = ModelService()
+        desired = str(self.device.currentData())
+        precision = str(self.gpu_precision.currentData())
+        device = ("cuda" if service.is_ready(model, device="cuda", compute_type=precision)
+                  else "cpu") if desired == "auto" else desired
+        return STTOptions(
+            model_id=model_id, language=str(self.language.currentData()),
+            vad=self.vad.isChecked(), word_timestamps=self.words.isChecked(),
+            device=device, compute_type=precision if device == "cuda" else "int8"
+        )
+
     def set_media(self, source: str | None) -> None:
         if source == self._source:
             return
@@ -136,20 +164,17 @@ class STTPanel(QWidget):
         if not self._source or not Path(self._source).is_file():
             self.status.setText("Open a local audio/video file first.")
             return
-        model_id = str(self.model.currentData())
-        blockers = preflight(get_model(model_id), device="cpu")
+        from dataclasses import asdict
+        options = self.stt_options()
+        blockers = preflight(get_model(options.model_id), device=options.device,
+                             compute_type=options.compute_type)
         if blockers:
             self.status.setText("; ".join(blockers) + " · Open Settings → Models.")
-            self.modelsRequested.emit(model_id)
+            self.modelsRequested.emit(options.model_id)
             return
-        from ...stt import STTOptions
-        from dataclasses import asdict
-        options = asdict(STTOptions(
-            model_id=model_id, language=str(self.language.currentData()),
-            vad=self.vad.isChecked(), word_timestamps=self.words.isChecked(),
-        ))
         self._job_id = self._manager.submit(TaskRequest(
-            kind="stt", inputs={"target_path": self._source, "options": options},
+            kind="stt", inputs={"target_path": self._source, "options": asdict(options)},
+            device="gpu" if options.device == "cuda" else "cpu",
         ))
         self._manager.poll()
         self.run_button.setEnabled(False)

@@ -17,8 +17,9 @@ def installed(model: ModelDescriptor, root: Path | None = None) -> bool:
     return ModelService(root).status(model).state in ("Installed", "Ready")
 
 
-def preflight(model: ModelDescriptor, *, device: str = "cpu", root: Path | None = None) -> list[str]:
-    return ModelService(root).preflight(model, device=device)
+def preflight(model: ModelDescriptor, *, device: str = "cpu", compute_type: str | None = None,
+              root: Path | None = None) -> list[str]:
+    return ModelService(root).preflight(model, device=device, compute_type=compute_type)
 
 
 def install(model: ModelDescriptor, root: Path | None = None) -> Path:

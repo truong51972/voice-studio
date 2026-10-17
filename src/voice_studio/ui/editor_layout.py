@@ -200,6 +200,12 @@ class EditorLayoutMixin:
         self.speakers_panel.mode.setCurrentIndex(settings.get('speaker_mode', 0))
         self.stt_panel.vad.setChecked(settings.get('vad', True))
         self.stt_panel.words.setChecked(settings.get('word_timestamps', False))
+        for widget, key in ((self.stt_panel.device, 'stt_device'),
+                            (self.stt_panel.gpu_precision, 'stt_precision')):
+            if key in settings:
+                index = widget.findData(settings[key])
+                if index >= 0:
+                    widget.setCurrentIndex(index)
         self.timeline.set_view(zoom=settings.get('timeline_zoom', self.zoom.value()), pan=settings.get('timeline_pan', self.pan.value() / 1000.))
         if settings.get('workspace_sizes'):
             self.workspace_splitter.setSizes(settings['workspace_sizes'])

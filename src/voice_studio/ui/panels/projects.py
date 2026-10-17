@@ -9,7 +9,6 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInp
                                QVBoxLayout, QWidget)
 
 from ...projects import ProjectStore
-from ...stt import STTOptions
 from ...workspace import projects_directory
 from ..session import ProjectSession
 
@@ -130,9 +129,7 @@ class ProjectsPanel(QWidget):
                     self.status.setText(str(exc))
 
     def _options(self):
-        return asdict(STTOptions(model_id=str(self.stt_panel.model.currentData()),
-                                language=str(self.stt_panel.language.currentData()),
-                                vad=self.stt_panel.vad.isChecked(), word_timestamps=self.stt_panel.words.isChecked()))
+        return asdict(self.stt_panel.stt_options())
 
     def _run(self):
         self.batchRequested.emit()

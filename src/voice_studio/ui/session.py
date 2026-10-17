@@ -42,9 +42,11 @@ class ProjectSession(QObject):
     def _submit(self, action: str, inputs: dict, record: AnalysisRecord | None = None) -> str:
         if self.project is None or self.manager is None:
             raise ValueError("Create/open a project first")
+        device = ("gpu" if action == "stt" and
+                  inputs.get("options", {}).get("device") == "cuda" else "cpu")
         job = self.manager.submit(TaskRequest(kind="editor", inputs={
             "action": action, "project_directory": str(self.project.directory), **inputs,
-        }))
+        }, device=device))
         self.jobs[job] = record if record is not None else action
         if record is None:
             self.project.settings.setdefault('operations', []).append({"id": job, "action": action, "state": "queued", "error": None})
