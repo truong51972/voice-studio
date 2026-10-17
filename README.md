@@ -30,6 +30,8 @@ Alternative entrypoints: `uv run poe desktop`, `uv run voice-studio`, `uv run py
 
 The speaker ONNX models (approximately 96 MiB total) download only on request, are checked against their SHA-256 and never committed to Git.
 
+Model management: [docs/model_manager.md](docs/model_manager.md). Open **Models** in the toolbar to install, verify or remove model assets. STT models require the optional `uv sync --extra stt` runtime and are not yet executable from the editor (#6).
+
 ## Workflow
 
 1. In **Workspace**, open the target audio or video.
