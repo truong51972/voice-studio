@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemDelegate, QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout,
     QHBoxLayout, QInputDialog, QLabel, QPushButton, QLineEdit,
@@ -34,6 +36,8 @@ class STTPanel(QWidget):
         self.document: TranscriptDocument | None = None
         self.speaker_names = {}
         self.export_range = None
+        self.last_export_path: Path | None = None
+        self.before_export = lambda: None
         layout = QVBoxLayout(self)
         settings = QFormLayout()
         self.model = QComboBox()
@@ -66,7 +70,9 @@ class STTPanel(QWidget):
         self.export_selection = QCheckBox("Export selected source range only")
         settings.addRow(self.vad)
         settings.addRow(self.words)
-        settings.addRow(self.export_selection)
+        # Kept as a compatibility flag for existing integrations; the visible
+        # scope chooser by the reviewed result is the authoritative UX.
+        self.export_selection.hide()
         layout.addLayout(settings)
 
         commands = QHBoxLayout()
@@ -82,6 +88,23 @@ class STTPanel(QWidget):
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
+        reviewed_header = QHBoxLayout()
+        reviewed_header.addWidget(QLabel("Reviewed transcript"), 1)
+        self.export_scope = QComboBox()
+        self.export_scope.addItem("Current source", "source")
+        self.export_scope.addItem("Selected source range", "range")
+        self.export_scope.addItem("Whole project · clip order", "project")
+        self.export_scope.setToolTip("Current source uses source time; whole project follows clip trims/order.")
+        reviewed_header.addWidget(self.export_scope)
+        self.export_button = QPushButton("Export transcript…")
+        self.export_button.clicked.connect(self._export)
+        self.export_button.setEnabled(False)
+        reviewed_header.addWidget(self.export_button)
+        self.open_folder_button = QPushButton("Open output folder")
+        self.open_folder_button.setVisible(False)
+        self.open_folder_button.clicked.connect(self._open_export_folder)
+        reviewed_header.addWidget(self.open_folder_button)
+        layout.addLayout(reviewed_header)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search transcript…")
         self.search.textChanged.connect(self._filter)
@@ -95,11 +118,9 @@ class STTPanel(QWidget):
         self.merge_button.clicked.connect(self._merge)
         self.reset_button = QPushButton("Revert")
         self.reset_button.clicked.connect(self._reset)
-        self.export_button = QPushButton("Export")
-        self.export_button.clicked.connect(self._export)
         for button in (
             self.speaker_button, self.split_button, self.merge_button,
-            self.reset_button, self.export_button,
+            self.reset_button,
         ):
             editor_actions.addWidget(button)
         layout.addLayout(editor_actions)
@@ -153,6 +174,9 @@ class STTPanel(QWidget):
         self._source = source
         self.raw_result = None
         self.document = None
+        self.last_export_path = None
+        self.open_folder_button.setVisible(False)
+        self.export_button.setEnabled(False)
         self.table.setRowCount(0)
 
     def start(self) -> None:
@@ -203,6 +227,7 @@ class STTPanel(QWidget):
         self.raw_result = result
         self.document = TranscriptDocument(result)
         self._render()
+        self.export_button.setEnabled(True)
         self.status.setText(
             f"{len(self.document.edited)} transcript segments · {result['duration']:.1f}s"
         )
@@ -218,6 +243,7 @@ class STTPanel(QWidget):
             "segments": [s.as_dict() for s in document.raw],
         }
         self._render()
+        self.export_button.setEnabled(True)
 
     def _render(self) -> None:
         if self.document is None:
@@ -345,40 +371,88 @@ class STTPanel(QWidget):
         self._render()
         self.documentChanged.emit()
 
-    def _export(self) -> None:
-        if self.document is None:
-            self.status.setText("No transcript to export.")
+    def _open_export_folder(self) -> None:
+        if self.last_export_path is not None:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_export_path.parent)))
+
+    def _export(self, scope: str | None = None) -> None:
+        # The same command is shared by the visible result action, File menu,
+        # transcript context menu and source/project export entry points.
+        if isinstance(scope, bool):  # QAction.clicked passes its checked bool.
+            scope = None
+        scope = scope or ("range" if self.export_selection.isChecked()
+                          else str(self.export_scope.currentData()))
+        project = self.session.project if self.session else None
+        if scope not in ("source", "range", "project"):
+            self.status.setText("Choose a valid transcript export scope")
             return
+        if scope == "project":
+            if project is None or not any(project.latest_analysis(m.id, "stt") for m in project.items):
+                self.status.setText("Transcribe at least one project source before exporting")
+                return
+        elif self.document is None:
+            self.status.setText("No reviewed transcript to export.")
+            return
+        source_range = None
+        if scope == "range":
+            if not self.export_range or self.export_range[1] <= self.export_range[0]:
+                self.status.setText("Choose a valid source selection before exporting")
+                return
+            source_range = self.export_range
+
+        stem = (project.name if scope == "project" and project else
+                Path(self._source or self.document.raw_metadata.get("source", "transcript")).stem)
+        suffix = "-project-transcript" if scope == "project" else "-reviewed-transcript"
+        suggested = f"{stem}{suffix}.md"
         path, selected = QFileDialog.getSaveFileName(
-            self, "Export reviewed transcript", "",
+            self, "Export reviewed transcript", suggested,
             "Markdown (*.md);;SubRip (*.srt);;Plain text (*.txt);;JSON (*.json)",
         )
         if not path:
             return
-        format_name = Path(path).suffix.lstrip(".").lower()
-        if format_name not in ("md", "srt", "txt", "json"):
-            format_name = "md"
-            path += ".md"
-        document = TranscriptDocument.restore(self.document.serialize())
-        if self.session and self.session.project:
-            item = next((m for m in self.session.project.items if m.source == self._source), None)
-            if item:
-                document.raw_metadata.update(current_source=item.source, media_id=item.id, content_fingerprint=item.fingerprint)
-        from dataclasses import replace
-        document.edited = [replace(s, speaker_id=self.speaker_names.get(s.speaker_id, s.speaker_id)) for s in document.edited]
-        source_range = None
-        if self.export_selection.isChecked():
-            if not self.export_range:
-                self.status.setText("Choose a valid source selection before exporting")
-                return
-            start, end = self.export_range
-            if end <= start:
-                self.status.setText("Choose a valid source selection before exporting")
-                return
-            source_range = (start, end)
-        Path(path).write_text(export_text(document, format_name, source_range=source_range), encoding="utf-8")
-        note = ' · Boundary text includes only fully timed words; unavailable text omitted.' if source_range else ''
-        self.status.setText(f"Exported {Path(path).name}{note}")
+        destination = Path(path)
+        formats = {"md", "txt", "srt", "json"}
+        kind = destination.suffix.lstrip(".").lower()
+        if not kind:
+            kind = next((extension for extension in formats if f"*.{extension}" in selected), "md")
+            destination = destination.with_suffix("." + kind)
+        if kind not in formats:
+            self.status.setText("Use .md, .txt, .srt or .json for transcript export")
+            return
+        try:
+            self.before_export()  # Flush currently edited text before combined export.
+            if scope == "project":
+                content = project.combined_export(kind)
+            else:
+                from dataclasses import replace
+                document = TranscriptDocument.restore(self.document.serialize())
+                if project:
+                    item = next((m for m in project.items if m.source == self._source), None)
+                    if item:
+                        document.raw_metadata.update(
+                            current_source=item.source, media_id=item.id,
+                            content_fingerprint=item.fingerprint,
+                        )
+                document.edited = [
+                    replace(entry, speaker_id=self.speaker_names.get(entry.speaker_id, entry.speaker_id))
+                    for entry in document.edited
+                ]
+                content = export_text(document, kind, source_range=source_range)
+            # Atomic replacement avoids leaving half-written exports on an error.
+            temporary = destination.with_name(destination.name + ".part")
+            try:
+                temporary.write_text(content, encoding="utf-8")
+                os.replace(temporary, destination)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+            self.last_export_path = destination.resolve()
+            self.open_folder_button.setVisible(True)
+            note = (" · Boundary words only; untimed boundary text omitted."
+                    if scope in ("range", "project") else "")
+            self.status.setText(f"Exported {destination.name} ({scope}){note}")
+        except (OSError, ValueError, KeyError) as exc:
+            self.status.setText(f"Export failed: {exc}")
 
     def _seek(self, row: int, _column: int) -> None:
         if self.document is not None and row < len(self.document.edited):
