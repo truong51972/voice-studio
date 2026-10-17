@@ -48,18 +48,40 @@ class TaskSnapshot:
     error: str | None = None
     started_at: float | None = None
     ended_at: float | None = None
+    processed_seconds: float | None = None
+    total_seconds: float | None = None
+    elapsed_seconds: float = 0.0
+    eta_seconds: float | None = None
 
 def _child_entry(request: TaskRequest, artifact: str) -> None:
     """Top-level spawn-safe child entry. Only this process loads inference backends."""
     folder = Path(artifact)
+    started = time.monotonic()
+    last_status: dict | None = None
+    last_written = 0.0
+
+    def progress(value: str | dict) -> None:
+        nonlocal last_status, last_written
+        data = dict(value) if isinstance(value, dict) else {"stage": str(value)}
+        now = time.monotonic()
+        data["elapsed_seconds"] = round(now - started, 3)
+        # One process writes; atomic replace prevents partial JSON reads from Qt.
+        if (last_status is not None and now - last_written < .2 and
+                last_status.get("stage") == data.get("stage") and
+                last_status.get("processed_seconds") == data.get("processed_seconds")):
+            return
+        temporary = folder / "status.part"
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(data, handle, allow_nan=False)
+        os.replace(temporary, folder / "status.json")
+        last_written, last_status = now, data
+
     try:
         if os.name != "nt":
             os.setsid()
-        (folder / "status.json").write_text(json.dumps({"stage": "Loading model"}))
+        progress("Loading model")
         if request.kind == "editor":
             from .editor_tasks import run_editor_task
-            def progress(stage: str):
-                (folder / "status.json").write_text(json.dumps({"stage": stage}), encoding="utf-8")
             payload = run_editor_task({**request.inputs, 'work_directory': str(folder)}, progress)
         elif request.kind == "diagnostic":
             delay = float(request.inputs.get("seconds", 0.0))
@@ -80,10 +102,6 @@ def _child_entry(request: TaskRequest, artifact: str) -> None:
             )
         elif request.kind == "stt":
             from .stt import STTOptions, transcribe
-            def progress(stage: str):
-                (folder / "status.json").write_text(
-                    json.dumps({"stage": stage}), encoding="utf-8"
-                )
             payload = transcribe(
                 str(request.inputs["target_path"]),
                 STTOptions(**request.inputs["options"]),
@@ -139,6 +157,7 @@ class _Task:
         self.folder = folder
         self.snapshot = TaskSnapshot(id=identifier, state="queued")
         self.process: mp.Process | None = None
+        self.samples: list[tuple[float, float]] = []
 
 class TaskManager:
     """Launch at most one GPU task and cpu_concurrency CPU jobs at a time.
@@ -202,6 +221,41 @@ class TaskManager:
             self._release_model(model_id)
             raise
 
+    @staticmethod
+    def _update_progress(task: _Task) -> None:
+        status = task.folder / "status.json"
+        if not status.is_file():
+            return
+        try:
+            payload = json.loads(status.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                return
+            stage = payload.get("stage")
+            if isinstance(stage, str) and stage:
+                task.snapshot.stage = stage
+            processed, total = payload.get("processed_seconds"), payload.get("total_seconds")
+            if isinstance(processed, (int, float)) and not isinstance(processed, bool):
+                from math import isfinite
+                if isfinite(processed) and processed >= 0:
+                    state = task.snapshot
+                    state.processed_seconds = max(state.processed_seconds or 0., processed)
+                    if isinstance(total, (int, float)) and not isinstance(total, bool) and isfinite(total) and total > 0:
+                        state.total_seconds = total
+                        state.progress = max(state.progress, min(1., state.processed_seconds / total))
+                        now = time.monotonic()
+                        if not task.samples or state.processed_seconds > task.samples[-1][1]:
+                            task.samples.append((now, state.processed_seconds))
+                            task.samples = task.samples[-8:]
+                        if len(task.samples) >= 2 and state.elapsed_seconds >= 3.:
+                            elapsed = task.samples[-1][0] - task.samples[0][0]
+                            delta = task.samples[-1][1] - task.samples[0][1]
+                            if elapsed >= 1. and delta >= 1.:
+                                eta = (total - state.processed_seconds) * elapsed / delta
+                                state.eta_seconds = max(0., eta) if 0 <= eta <= 604800 else None
+        except (ValueError, OSError, TypeError, OverflowError):
+            # A vanished or malformed status must not crash the poll loop.
+            pass
+
     def poll(self) -> tuple[TaskSnapshot, ...]:
         # Reap terminated jobs before scheduling new ones.
         for task in self._tasks.values():
@@ -209,19 +263,17 @@ class TaskManager:
             proc = task.process
             if state.state != "running" or proc is None:
                 continue
+            if state.started_at is not None:
+                state.elapsed_seconds = max(0., time.monotonic() - state.started_at)
+            self._update_progress(task)
             if proc.is_alive():
-                status = task.folder / "status.json"
-                if status.exists():
-                    try:
-                        state.stage = json.loads(status.read_text()).get("stage", "Running")
-                        state.progress = 0.1
-                    except (ValueError, OSError):
-                        pass
                 continue
             proc.join(timeout=0.2)
             proc.close()
             task.process = None
             state.ended_at = time.monotonic()
+            state.elapsed_seconds = max(0., state.ended_at - (state.started_at or state.ended_at))
+            state.eta_seconds = None
             result = task.folder / "result.json"
             error = task.folder / "error.json"
             if result.exists():
@@ -298,6 +350,9 @@ class TaskManager:
         task.snapshot.state = "cancelled"
         task.snapshot.ended_at = time.monotonic()
         task.snapshot.stage = "Cancelled"
+        task.snapshot.eta_seconds = None
+        if task.snapshot.started_at is not None:
+            task.snapshot.elapsed_seconds = max(0., task.snapshot.ended_at - task.snapshot.started_at)
         shutil.rmtree(task.folder, ignore_errors=True)
 
     def acknowledge(self, identifier: str) -> None:
