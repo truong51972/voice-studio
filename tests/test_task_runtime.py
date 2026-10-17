@@ -71,3 +71,22 @@ def test_compact_locator_reconstruction():
     bundle = reconstruct_locator(payload)
     assert bundle.target.size == 0
     assert bundle.results[0].segments[0].start == 1
+
+
+def test_editor_scratch_is_inside_the_cancellable_job_folder(tmp_path, monkeypatch):
+    from voice_studio import editor_tasks, task_runtime
+    if hasattr(task_runtime.os, 'setsid'):
+        monkeypatch.setattr(task_runtime.os, 'setsid', lambda: None)
+    folder = tmp_path / 'job'
+    folder.mkdir()
+    seen = []
+    def worker(inputs, progress):
+        scratch = Path(inputs['work_directory'])
+        assert scratch == folder
+        (scratch / 'normalized-audio.wav').write_bytes(b'project scratch')
+        seen.append(scratch)
+        return {'kind': 'diagnostic'}
+    monkeypatch.setattr(editor_tasks, 'run_editor_task', worker)
+    task_runtime._child_entry(TaskRequest(kind='editor', inputs={'action': 'fixture', 'work_directory': '/ignored'}), str(folder))
+    assert seen == [folder]
+    assert (folder / 'result.json').is_file()

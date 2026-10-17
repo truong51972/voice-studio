@@ -60,7 +60,7 @@ def _child_entry(request: TaskRequest, artifact: str) -> None:
             from .editor_tasks import run_editor_task
             def progress(stage: str):
                 (folder / "status.json").write_text(json.dumps({"stage": stage}), encoding="utf-8")
-            payload = run_editor_task(request.inputs, progress)
+            payload = run_editor_task({**request.inputs, 'work_directory': str(folder)}, progress)
         elif request.kind == "diagnostic":
             delay = float(request.inputs.get("seconds", 0.0))
             time.sleep(min(max(delay, 0), 10))

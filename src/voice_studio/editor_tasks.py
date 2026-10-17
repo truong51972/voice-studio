@@ -250,7 +250,7 @@ def run_editor_task(inputs: dict, progress) -> dict:
         payload = transcribe(target, STTOptions(**{k: v for k, v in options.items() if k != "model_revision"}), progress=progress)
     elif action == "diarization":
         from .diarization import diarize
-        payload = diarize(target, options["model_directory"], work_directory=directory / "cache")
+        payload = diarize(target, options["model_directory"], work_directory=Path(inputs.get('work_directory', directory / 'cache')))
     elif action == "summary":
         from .transcript import TranscriptDocument
         from .summarization import summarize
