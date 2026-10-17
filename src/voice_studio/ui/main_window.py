@@ -56,6 +56,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self.session.changed.connect(self._refresh_project)
         self.session.resultReady.connect(self._result_ready)
         self.session.statusChanged.connect(self._status)
+        self.session.progressChanged.connect(self.stt_progress.show_progress)
+        self.stt_panel.before_export = self._prepare_transcript_export
         self.session.prepare_result = self._before_result
         self.session.prepare_close = self._prepare_close
         self.stt_panel.editingStarted.connect(self.playback.pause)
@@ -103,12 +105,14 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self._selection_restored = False
             self._outside_clip = False
             self._pending_review = False
+            self.stt_progress.clear()
             self.playback.set_project(project)
             self.stt_panel.set_media(None)
             self.diarization_panel.set_media(None)
             self.summary_panel.reset()
             self._bundle = None
             self.video_widget.overlay.set_bundle(None)
+            self.video_widget.overlay.set_subtitles([])
             self.timeline.set_bundle(None)
             self._project_position(0., 0.)
             self.pages.setCurrentIndex(1)
@@ -224,6 +228,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self._target_path = item.source
         self._current_fingerprint = item.fingerprint
         self.stt_panel.set_media(item.source)
+        self.video_widget.overlay.set_subtitles([])
         self.diarization_panel.set_media(item.source)
         if changed:
             self.summary_panel.reset()
@@ -253,6 +258,10 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self.projects_panel._active_document = document
             self.projects_panel._active_review_key = item.settings_key
             self.stt_panel.load_document(document)
+        self.video_widget.overlay.set_subtitles(
+            self.stt_panel.document.edited if self.stt_panel.document else [],
+            self.stt_panel.speaker_names,
+        )
         diarization = project.latest_analysis(item.id, 'diarization')
         if diarization:
             raw = project.result(diarization)
@@ -275,6 +284,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
 
     def _open_project_media(self, source, document):
         self.stt_panel.load_document(document)
+        self.video_widget.overlay.set_subtitles(document.edited, self.stt_panel.speaker_names)
         self.projects_panel._active_document = document
         if self.session.project and self.projects_panel.active_id:
             self.projects_panel._active_review_key = self.session.project.get(self.projects_panel.active_id).settings_key
@@ -454,8 +464,24 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         except (OSError, ValueError) as exc:
             self.playback.pause()
             self._status(f'Could not save transcript edits: {exc}')
+        self.video_widget.overlay.set_subtitles(
+            self.stt_panel.document.edited if self.stt_panel.document else [],
+            self.stt_panel.speaker_names,
+        )
         if self.session.project:
             self._render_timeline()
+
+    def _prepare_transcript_export(self):
+        # Save the reviewed source snapshot before a clip-ordered project export.
+        self.stt_panel.commit_edit()
+        self.projects_panel.save_active_review(self.stt_panel.document)
+
+    def _toggle_subtitles(self):
+        show = self.actions["subtitles"].isChecked()
+        self.video_widget.overlay.set_show_subtitles(show)
+        if self.session.project:
+            self.session.project.settings.setdefault("ui", {})["show_subtitles"] = show
+            self.session.project.save()
 
     def _set_selection(self, start, end):
         item = self._current_item()
@@ -523,7 +549,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         project_label = '— (source preview)' if self._outside_clip else _fmt_time(project_seconds)
         self.time_label.setText(f'Project {project_label} · Source {_fmt_time(source_seconds)}')
         self.timeline.set_position_seconds(project_seconds)
-        self.video_widget.overlay.set_position(source_seconds)
+        self.video_widget.overlay.set_position(source_seconds, inside_clip=not self._outside_clip)
         self.stt_panel.set_playhead(source_seconds)
 
     def _on_player_position(self, milliseconds):
@@ -587,6 +613,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             'stt_device': self.stt_panel.device.currentData(),
             'stt_precision': self.stt_panel.gpu_precision.currentData(),
             'selection': [self.selection_start.value(), self.selection_end.value()],
+            'show_subtitles': self.actions['subtitles'].isChecked(),
             'workspace_sizes': self.workspace_splitter.sizes(), 'timeline_sizes': self.root_splitter.sizes()}
         project.save()
         self._status('Project saved')
