@@ -314,8 +314,10 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 self._status('; '.join(blockers))
                 self._open_models(model.id)
                 return
-        for media_id in self._targets(all_sources):
-            self.session.analyze(task, media_id, options)
+        targets = self._targets(all_sources)
+        for index, media_id in enumerate(targets, start=1):
+            self.session.analyze(task, media_id, options,
+                                 progress_batch=(index, len(targets)) if task == "stt" else None)
 
     def _run_diarization(self):
         from ..model_catalog import default_model
