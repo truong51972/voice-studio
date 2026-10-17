@@ -117,8 +117,9 @@ def dominant_speaker(start: float, end: float, turns: list[dict], *, min_coverag
     return None
 
 
-def attribute_segments(segments: list[dict], turns: list[dict], *, min_coverage: float = .2) -> list[dict]:
-    """Anonymous overlap attribution; uncertain ties remain unassigned.
+def attribute_segments(segments: list[dict], turns: list[dict], *, min_coverage: float = .2,
+                       analysis_id: str | None = None) -> list[dict]:
+    """Refresh automatic attribution; preserve human and untracked legacy labels.
 
     Does not alter original STT results. This is an editable proposal only.
     """
@@ -127,12 +128,17 @@ def attribute_segments(segments: list[dict], turns: list[dict], *, min_coverage:
     for segment in segments:
         copy_segment = copy.deepcopy(segment)
         start, end = float(segment["start"]), float(segment["end"])
-        if (copy_segment.get("speaker_id") or copy_segment.get("speaker_review_required")
-                or copy_segment.get("speaker_source") == "human"):
+        origin = copy_segment.get('speaker_source')
+        protected = origin == 'human' or (origin != 'diarization' and
+                    (copy_segment.get('speaker_id') or copy_segment.get('speaker_review_required')))
+        # Preserve a split's review flag until another analysis replaces it.
+        same_analysis_warning = (copy_segment.get('speaker_review_required') and analysis_id is not None
+                                 and copy_segment.get('speaker_analysis_id') == analysis_id)
+        if protected or same_analysis_warning:
             result.append(copy_segment)
             continue
         speaker = dominant_speaker(start, end, clean_turns, min_coverage=min_coverage)
-        if speaker:
-            copy_segment["speaker_id"] = speaker
+        copy_segment.update(speaker_id=speaker, speaker_source='diarization',
+                            speaker_analysis_id=analysis_id, speaker_review_required=speaker is None)
         result.append(copy_segment)
     return result

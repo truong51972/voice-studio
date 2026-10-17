@@ -114,6 +114,20 @@ def test_cached_result_reused_after_trim_and_all_models_use_one_queue(tmp_path):
     project.finish_analysis(record, {'kind': 'stt', 'source': item.source, 'duration': 4.,
         'segments': [{'id': 's1', 'start': 1., 'end': 2., 'text': 'cached'}]})
     original = project.analysis_path(record.id).read_bytes()
+    turns = [dict(start=0., end=4., speaker_id='old', cluster_id='old', overlap=False)]
+    first_diarization = project.queue_analysis(item.id, 'diarization', {'revision': 'v1'})
+    project.finish_analysis(first_diarization, {'kind': 'diarization', 'turns': turns, 'exclusive_turns': turns})
+    document = project.review(item.id)
+    document.replace('s1', text='cached correction')
+    project.save_review(item.id, document)
+    # A newer transcript is active when v2 finishes; the archived cached review
+    # still carries v1 attribution until it is activated again.
+    newer_stt = project.queue_analysis(item.id, 'stt', {'revision': 'newer'})
+    project.finish_analysis(newer_stt, {'kind': 'stt', 'segments': [
+        {'id': 'new', 'start': 1., 'end': 2., 'text': 'newer transcript'}]})
+    turns = [dict(start=0., end=4., speaker_id='new', cluster_id='new', overlap=False)]
+    latest_diarization = project.queue_analysis(item.id, 'diarization', {'revision': 'v2'})
+    project.finish_analysis(latest_diarization, {'kind': 'diarization', 'turns': turns, 'exclusive_turns': turns})
     project.trim_clip(project.clips[0].id, .5, 3.)
     received = []
     session.resultReady.connect(lambda task, media_id, payload: received.append((task, media_id, payload)))
@@ -123,6 +137,11 @@ def test_cached_result_reused_after_trim_and_all_models_use_one_queue(tmp_path):
         assert session.jobs == {}
         assert received[0][2]['segments'][0]['text'] == 'cached'
         assert project.analysis_path(record.id).read_bytes() == original
+        assert item.settings_key == record.id
+        entry = project.review(item.id).edited[0]
+        assert entry.text == 'cached correction'
+        assert entry.speaker_id == project.cluster_mappings[latest_diarization.id]['new']
+        assert entry.speaker_analysis_id == latest_diarization.id
     finally:
         session.close()
 

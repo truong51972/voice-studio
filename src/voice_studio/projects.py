@@ -13,7 +13,7 @@ from pathlib import Path
 
 from .domain.timeline import TimelineClip, TimelineMap
 from .domain.speakers import AnalysisRecord, ProjectSpeaker, ReferenceRegion, has_overlapping_voices
-from .transcript import TranscriptDocument, export_text
+from .transcript import TranscriptDocument, TranscriptEntry, export_text
 from .workspace import projects_directory
 
 VERSION = 2
@@ -335,18 +335,14 @@ class ProjectStore:
             self.attribute_review(record.media_id)
 
     def attribute_review(self, media_id: str) -> None:
-        from .diarization import attribute_segments
         item = self.get(media_id)
         diarization = self.latest_analysis(media_id, "diarization")
         if item.status != "completed" or diarization is None:
             return
         document = self.review(media_id)
-        entries = [s.as_dict() for s in document.edited]
-        for previous, proposed in zip(entries, attribute_segments(entries, self.mapped_turns(diarization, exclusive=True))):
-            if not previous.get("speaker_id") and proposed.get("speaker_id"):
-                document.replace(previous['id'], speaker_id=proposed['speaker_id'], rename_speaker=True,
-                                 speaker_source='diarization')
-        if document.revision:
+        revision = document.revision
+        document.apply_diarization(self.mapped_turns(diarization, exclusive=True), analysis_id=diarization.id)
+        if document.revision != revision:
             self.save_review(media_id, document)
 
     def create_speaker(self, name: str, *, save: bool = True) -> ProjectSpeaker:
@@ -415,7 +411,8 @@ class ProjectStore:
                         and any(t['start'] < entry.end and entry.start < t['end'] for t in turns)):
                     assigned = dominant_speaker(entry.start, entry.end, mapped)
                     document.replace(entry.id, speaker_id=assigned, rename_speaker=True,
-                                     speaker_source='diarization', speaker_review_required=assigned is None)
+                                     speaker_source='diarization', speaker_analysis_id=record.id,
+                                     speaker_review_required=assigned is None)
             self.save_review(item.id, document)
         self.save()
         return speaker.id
@@ -611,6 +608,7 @@ class ProjectStore:
                 if canonical != entry.speaker_id:
                     document.replace(entry.id, speaker_id=canonical, rename_speaker=True,
                                      speaker_source=entry.speaker_source,
+                                     speaker_analysis_id=entry.speaker_analysis_id,
                                      speaker_review_required=entry.speaker_review_required)
         return document
 
@@ -651,10 +649,10 @@ class ProjectStore:
                         "clip_id": clip.id, "fingerprint": item.fingerprint,
                         "timeline_start": mapping.starts[clip.id]})
                     continue
-                entries = [replace(s, start=max(s.start, clip.source_in), end=min(s.end, end)) for s in document.edited if s.end > clip.source_in and s.start < end]
+                entries = [TranscriptEntry.from_dict(row) for row in document.selected_export(clip.source_in, end)['selected_segments']]
                 combined.edited.extend(replace(s, id=clip.id + '-' + s.id,
                     start=mapping.source_to_project(clip.id, s.start), end=mapping.source_to_project(clip.id, s.end),
-                    text=f'[{Path(item.source).name}] {s.text}') for s in entries)
+                    text=f'[{Path(item.source).name}] {s.text}') for s in entries if s.text.strip())
             return json.dumps(payload, ensure_ascii=False, indent=2) if kind == "json" else export_text(combined, "srt")
         sections = ["# Combined transcript\n"] if kind == "md" else []
         for index, clip in enumerate(self.clips, start=1):
@@ -663,13 +661,10 @@ class ProjectStore:
                 continue
             document = self.export_document(item.id)
             end = clip.end(item.duration)
-            document.edited = [replace(entry, start=max(entry.start, clip.source_in), end=min(entry.end, end))
-                               for entry in document.edited
-                               if entry.end > clip.source_in and entry.start < end]
             title = f"File {index}: {Path(item.source).name}"
             sections.extend([
                 f"\n## {title}\n" if kind == "md" else f"\n==== {title} ====\n",
                 f"Source interval: {clip.source_in:.3f}–{end:.3f}s (source-relative timestamps)\n",
-                export_text(document, kind),
+                export_text(document, kind, source_range=(clip.source_in, end)),
             ])
         return "\n".join(sections)

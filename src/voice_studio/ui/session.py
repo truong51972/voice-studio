@@ -197,6 +197,8 @@ class ProjectSession(QObject):
                         region.state, region.error = 'ready', None
                         region.model_revision = payload['model_revision']
                     self.project.save()
+                    if record.task in ('stt', 'diarization'):
+                        self.project.attribute_review(record.media_id)
                     self.resultReady.emit(record.task, record.media_id, payload)
                 elif context == "validate":
                     for asset in payload["assets"]:

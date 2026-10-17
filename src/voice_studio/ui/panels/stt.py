@@ -295,15 +295,13 @@ class STTPanel(QWidget):
         if self.document is None:
             self.status.setText("Transcribe this media first.")
             return
-        from ...diarization import attribute_segments
-        source = [entry.as_dict() for entry in self.document.edited]
-        proposed = attribute_segments(source, turns)
-        for old, new in zip(source, proposed):
-            if not old.get("speaker_id") and new.get("speaker_id"):
-                self.document.replace(
-                    old["id"], speaker_id=new["speaker_id"], rename_speaker=True,
-                    speaker_source='diarization',
-                )
+        record = None
+        if self.session and self.session.project:
+            project = self.session.project
+            item = next((item for item in project.items if item.source == self._source), None)
+            if item:
+                record = project.latest_analysis(item.id, 'diarization')
+        self.document.apply_diarization(turns, analysis_id=record.id if record else None)
         self._render()
         self.documentChanged.emit()
 
@@ -328,6 +326,7 @@ class STTPanel(QWidget):
                 document.raw_metadata.update(current_source=item.source, media_id=item.id, content_fingerprint=item.fingerprint)
         from dataclasses import replace
         document.edited = [replace(s, speaker_id=self.speaker_names.get(s.speaker_id, s.speaker_id)) for s in document.edited]
+        source_range = None
         if self.export_selection.isChecked():
             if not self.export_range:
                 self.status.setText("Choose a valid source selection before exporting")
@@ -336,15 +335,10 @@ class STTPanel(QWidget):
             if end <= start:
                 self.status.setText("Choose a valid source selection before exporting")
                 return
-            if format_name == 'json':
-                import json
-                Path(path).write_text(json.dumps(document.selected_export(start, end), ensure_ascii=False, indent=2), encoding='utf-8')
-                self.status.setText(f'Exported {Path(path).name} (selected source interval only)')
-                return
-            document.edited = [replace(s, start=max(s.start, start), end=min(s.end, end)) for s in document.edited if s.end > start and s.start < end]
-            document.raw_metadata['export_source_interval'] = [start, end]
-        Path(path).write_text(export_text(document, format_name), encoding="utf-8")
-        self.status.setText(f"Exported {Path(path).name}")
+            source_range = (start, end)
+        Path(path).write_text(export_text(document, format_name, source_range=source_range), encoding="utf-8")
+        note = ' · Boundary text includes only fully timed words; unavailable text omitted.' if source_range else ''
+        self.status.setText(f"Exported {Path(path).name}{note}")
 
     def _seek(self, row: int, _column: int) -> None:
         if self.document is not None and row < len(self.document.edited):

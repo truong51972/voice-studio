@@ -22,6 +22,7 @@ class TranscriptEntry:
     words: tuple = ()
     speaker_source: str | None = None
     speaker_review_required: bool = False
+    speaker_analysis_id: str | None = None
 
     @classmethod
     def from_dict(cls, row: dict):
@@ -31,6 +32,7 @@ class TranscriptEntry:
             language=row.get("language"), words=tuple(copy.deepcopy(row.get("words", []))),
             speaker_source=row.get("speaker_source"),
             speaker_review_required=bool(row.get("speaker_review_required", False)),
+            speaker_analysis_id=row.get("speaker_analysis_id"),
         )
 
     def as_dict(self) -> dict:
@@ -40,6 +42,7 @@ class TranscriptEntry:
             "language": self.language, "words": copy.deepcopy(list(self.words)),
             "speaker_source": self.speaker_source,
             "speaker_review_required": self.speaker_review_required,
+            "speaker_analysis_id": self.speaker_analysis_id,
         }
 
 class TranscriptDocument:
@@ -60,7 +63,8 @@ class TranscriptDocument:
 
     def replace(self, identifier: str, *, text: str | None = None,
                 speaker_id: str | None = None, rename_speaker: bool = False,
-                speaker_source: str | None = "human", speaker_review_required: bool = False) -> None:
+                speaker_source: str | None = "human", speaker_review_required: bool = False,
+                speaker_analysis_id: str | None = None) -> None:
         i = self._index(identifier)
         old = self.edited[i]
         from dataclasses import replace as dc_replace
@@ -69,6 +73,7 @@ class TranscriptDocument:
             speaker_id=(speaker_id if rename_speaker else old.speaker_id),
             speaker_source=speaker_source if rename_speaker else old.speaker_source,
             speaker_review_required=speaker_review_required if rename_speaker else old.speaker_review_required,
+            speaker_analysis_id=speaker_analysis_id if rename_speaker else old.speaker_analysis_id,
             # Original word timestamps are no longer valid after an edit.
             words=() if text is not None and text != old.text else old.words,
         )
@@ -107,6 +112,7 @@ class TranscriptDocument:
                             else x.speaker_source if x.speaker_source == y.speaker_source else None),
             speaker_review_required=(x.speaker_review_required or y.speaker_review_required
                                      or x.speaker_id != y.speaker_id),
+            speaker_analysis_id=x.speaker_analysis_id if x.speaker_analysis_id == y.speaker_analysis_id else None,
         )
         self.edited[a:b+1] = [merged]
         self._record("merge", [first_id, second_id, merged_id])
@@ -130,6 +136,16 @@ class TranscriptDocument:
             "edited": [s.as_dict() for s in self.edited],
             "revision": self.revision, "history": copy.deepcopy(self.history),
         }
+
+    def apply_diarization(self, turns: list[dict], *, analysis_id: str | None = None) -> None:
+        from .diarization import attribute_segments
+        proposed = attribute_segments([entry.as_dict() for entry in self.edited], turns, analysis_id=analysis_id)
+        for old, row in zip(list(self.edited), proposed):
+            new = TranscriptEntry.from_dict(row)
+            if old != new:
+                self.replace(old.id, speaker_id=new.speaker_id, rename_speaker=True,
+                             speaker_source=new.speaker_source, speaker_analysis_id=new.speaker_analysis_id,
+                             speaker_review_required=new.speaker_review_required)
 
     def selected_export(self, start: float, end: float) -> dict:
         """A reviewed selection, never a full raw/review archive.
@@ -177,10 +193,12 @@ def _timestamp(seconds: float) -> str:
     sec, ms = divmod(rem, 1000)
     return f"{hours:02}:{minutes:02}:{sec:02},{ms:03}"
 
-def export_text(document: TranscriptDocument, kind: str) -> str:
-    entries = sorted(document.edited, key=lambda s: (s.start, s.end))
+def export_text(document: TranscriptDocument, kind: str, *, source_range: tuple[float, float] | None = None) -> str:
+    selection = document.selected_export(*source_range) if source_range is not None else None
+    entries = sorted((TranscriptEntry.from_dict(row) for row in selection['selected_segments'])
+                     if selection is not None else document.edited, key=lambda s: (s.start, s.end))
     if kind == "json":
-        return json.dumps(document.serialize(), ensure_ascii=False, indent=2)
+        return json.dumps(selection if selection is not None else document.serialize(), ensure_ascii=False, indent=2)
     if kind == "txt":
         source = document.raw_metadata.get('current_source', document.raw_metadata.get('source', 'unknown'))
         return f'Source: {Path(source).name} (source-relative timestamps)\n' + "\n".join(

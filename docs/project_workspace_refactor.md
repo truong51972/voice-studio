@@ -47,10 +47,12 @@ media kind, portable roots/permissions, migration/write failures, speaker mappin
 confirmed aliases/splits, references, cache invalidation, exports, task cancellation,
 project switches and Qt import/trim/reorder/save/reopen flows.
 
-PR review regressions also cover selected JSON exports without excluded raw text,
-metadata or word timestamps; overlap-based cluster splits with persisted review
-flags and preserved human corrections; and default Windows runtime/build-smoke
-policy. The local model-free suite passes **167 tests**. Packaging tests simulate
+PR review regressions also cover all selected export formats excluding out-of-range
+speech; JSON without excluded raw text, metadata or word timestamps; overlap-based
+cluster splits with persisted review flags and preserved human corrections;
+diarization v1 → v2 → reopen with automatic analysis provenance, ambiguity, human
+overrides and cached transcript reactivation; and default Windows runtime/build-smoke
+policy. The local model-free suite passes **178 tests**. Packaging tests simulate
 build outputs and smoke failure; they do not replace a real Windows build/run.
 
 The 61-minute Locator/STT checks generate synthetic PCM chunks and assert bounded

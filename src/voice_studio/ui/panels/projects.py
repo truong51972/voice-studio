@@ -184,6 +184,6 @@ class ProjectsPanel(QWidget):
                 if not Path(path).suffix:
                     path += '.md'
                 Path(path).write_text(self.project.combined_export(kind), encoding="utf-8")
-                self.status.setText(f"Exported {Path(path).name}")
+                self.status.setText(f"Exported {Path(path).name} · Boundary text includes only fully timed words; unavailable text omitted.")
             except (ValueError, OSError) as exc:
                 self.status.setText(str(exc))

@@ -1,5 +1,5 @@
 import json
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -88,6 +88,49 @@ def test_manual_corrections_survive_auto_assignment_and_raw_outputs_remain_separ
     assert project.result(transcript)['segments'][0].get('speaker_id') is None
 
 
+def test_diarization_rerun_refreshes_automatic_labels_without_losing_corrections(tmp_path):
+    project = project_with_sources(tmp_path, 1)
+    item = project.items[0]
+    transcript = project.queue_analysis(item.id, 'stt', {})
+    project.finish_analysis(transcript, {'kind': 'stt', 'segments': [
+        {'id': name, 'start': start, 'end': end, 'text': name}
+        for name, start, end in [('auto', 0., 2.), ('human', 2., 4.), ('clear', 4., 6.),
+                                 ('ambiguous', 6., 8.), ('gap', 8., 10.), ('was_ambiguous', 10., 12.)]]})
+    first = project.queue_analysis(item.id, 'diarization', {'model_revision': 'v1'})
+    v1_turns = [dict(start=start, end=end, speaker_id=cluster, cluster_id=cluster, overlap=False)
+                for start, end, cluster in [(0., 10., 'a'), (10., 11., 'a'), (11., 12., 'b')]]
+    project.finish_analysis(first, {'kind': 'diarization', 'turns': v1_turns, 'exclusive_turns': v1_turns})
+    document = project.review(item.id)
+    old = document.edited[0].speaker_id
+    document.replace('auto', text='Human text correction')
+    document.replace('human', speaker_id=old, rename_speaker=True)
+    document.replace('clear', speaker_id=None, rename_speaker=True)
+    project.save_review(item.id, document)
+    raw_before = {record.id: project.analysis_path(record.id).read_bytes() for record in project.analyses}
+    second = project.queue_analysis(item.id, 'diarization', {'model_revision': 'v2'})
+    v2_turns = [dict(start=start, end=end, speaker_id=cluster, cluster_id=cluster, overlap=False)
+                for start, end, cluster in [(0., 7., 'c'), (7., 8., 'd'), (10., 12., 'd')]]
+    project.finish_analysis(second, {'kind': 'diarization', 'turns': v2_turns, 'exclusive_turns': v2_turns})
+    reopened = ProjectStore(project.directory)
+    entries = {entry.id: entry for entry in reopened.review(item.id).edited}
+    assert entries['auto'].speaker_id == reopened.cluster_mappings[second.id]['c'] != old
+    assert entries['auto'].text == 'Human text correction'
+    assert entries['was_ambiguous'].speaker_id == reopened.cluster_mappings[second.id]['d']
+    for name in ('ambiguous', 'gap'):
+        assert entries[name].speaker_id is None
+        assert entries[name].speaker_review_required
+    for name in ('auto', 'ambiguous', 'gap', 'was_ambiguous'):
+        assert entries[name].speaker_source == 'diarization'
+        assert entries[name].speaker_analysis_id == second.id
+    assert entries['human'].speaker_id == old and entries['human'].speaker_source == 'human'
+    assert entries['clear'].speaker_id is None and entries['clear'].speaker_source == 'human'
+    assert reopened.latest_analysis(item.id, 'diarization').id == second.id
+    revision = reopened.review(item.id).revision
+    reopened.attribute_review(item.id)
+    assert reopened.review(item.id).revision == revision  # same analysis is idempotent
+    assert all(project.analysis_path(key).read_bytes() == value for key, value in raw_before.items())
+
+
 def test_manual_regions_validate_overlap_bounds_and_allow_multiple_references(tmp_path):
     project = project_with_sources(tmp_path, 1)
     item = project.items[0]
@@ -143,6 +186,9 @@ def test_all_project_exports_follow_trim_order_and_keep_source_boundaries(tmp_pa
     for item in project.items:
         stt(project, item.id)
     first, second = project.clips
+    document = project.review(first.media_id)
+    document.edited[0] = replace(document.edited[0], words=({'start': 2., 'end': 3., 'text': 'hello'},))
+    project.save_review(first.media_id, document)
     project.trim_clip(first.id, 2., 8.)
     project.reorder_clips([second.id, first.id])
     payload = json.loads(project.combined_export('json'))
@@ -172,7 +218,8 @@ def test_project_summary_has_stable_source_anchors_and_ordered_review_snapshots(
     assert 'source-1.m4a 1.0–3.0s' in summary_markdown(report)
 
 
-def test_selected_json_export_contains_no_excluded_text_or_word_timestamps(tmp_path):
+@pytest.mark.parametrize('kind', ['json', 'md', 'txt', 'srt'])
+def test_selected_project_exports_exclude_unselected_speech(tmp_path, kind):
     project = project_with_sources(tmp_path, 1)
     item = project.items[0]
     record = project.queue_analysis(item.id, 'stt', {})
@@ -192,9 +239,17 @@ def test_selected_json_export_contains_no_excluded_text_or_word_timestamps(tmp_p
     raw_before = project.analysis_path(record.id).read_bytes()
     review_before = project._review_path(item).read_bytes()
     project.trim_clip(project.clips[0].id, 10., 13.)
-    exported = project.combined_export('json')
+    exported = project.combined_export(kind)
     assert 'SECRET' not in exported
     assert 'raw inside' not in exported
+    assert 'included' in exported and 'reviewed inside' in exported
+    assert project.analysis_path(record.id).read_bytes() == raw_before
+    assert project._review_path(item).read_bytes() == review_before
+    if kind != 'json':
+        if kind == 'srt':
+            assert exported.count('-->') == 2  # no empty source-name-only boundary cue
+            assert '00:00:00,000 --> 00:00:02,000' in exported
+        return
     clip = json.loads(exported)['clips'][0]
     assert 'review' not in clip and 'raw' not in clip and 'history' not in clip
     assert clip['media_id'] == item.id and clip['content_fingerprint'] == item.fingerprint
@@ -206,8 +261,6 @@ def test_selected_json_export_contains_no_excluded_text_or_word_timestamps(tmp_p
         assert 10. <= entry['start'] < entry['end'] <= 13.
         for word in entry['words']:
             assert 10. <= word['start'] < word['end'] <= 13.
-    assert project.analysis_path(record.id).read_bytes() == raw_before
-    assert project._review_path(item).read_bytes() == review_before
 
 
 def test_split_cluster_uses_overlap_flags_ambiguity_and_preserves_human_labels_after_reopen(tmp_path):

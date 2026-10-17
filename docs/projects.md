@@ -58,9 +58,12 @@ durations must be probed before mapping. A shared project boundary belongs to
 the following clip; the final end is seekable. Reorder/trim APIs do not modify
 raw inference timestamps or invalidate unchanged source/model settings.
 Combined Markdown/TXT exports follow clip order, include explicit file/range
-boundaries and retain source-relative timestamps. They include overlapping
-transcript segments with timestamps clipped to the range; partially selected
-segments retain their text for human review rather than inventing word cuts.
+boundaries and retain source-relative timestamps. All selected exports clip
+segment timestamps and include boundary text only for fully contained timed words.
+Without usable word timings (also after text edits), partial segment text is
+omitted; entire reviewed segments inside the range retain their text. Empty
+omissions do not create lines or subtitle cues. Export status and Help explain
+this policy; full-source exports retain complete text.
 Combined SRT uses project timestamps and names each source in its cues. Combined
 JSON is a **selected timeline export**, not a project archive: it retains explicit
 clip/media IDs, fingerprints, source ranges/project starts, source links and only
@@ -68,7 +71,7 @@ the selected reviewed entries. Segment/word times are source-relative; clip
 `timeline_start` is project-relative. Raw transcripts, history and whole-source
 metadata are excluded. Boundary segments include only fully contained timestamped
 words; without word timings their text is omitted, with `text_requires_review`
-set. Separate source JSON range exports use the same policy. Full-source JSON
+set. Separate source range exports use the same policy in every format. Full-source JSON
 still includes raw/reviewed snapshots; back up `.projects` for a full archive.
 The GUI shares
 this time mapping for playback, tracks, reference selection and export.
@@ -88,6 +91,12 @@ the union of overlapping turns per mapped speaker. Assignment requires at least
 Ties or low coverage clear the automatic label and display **Review speaker**,
 persisted across reopen. Explicit human assignments (including clearing a label)
 and older labels without provenance are preserved. Text corrections are retained.
+Automatic assignments record their diarization analysis ID. New diarization
+results refresh automatic labels against the latest exclusive mapped turns,
+clearing/flagging ambiguous or uncovered spans while retaining human assignments,
+explicit clears and text edits. Reusing an archived STT result also refreshes its
+automatic labels. Review flags from a split persist for the same analysis and may
+be reassessed when another analysis completes; raw inference files never change.
 
 Task records retain failed/cancelled/interrupted states. Switching projects stops
 and reaps old jobs first; reopening validates source fingerprints asynchronously.
