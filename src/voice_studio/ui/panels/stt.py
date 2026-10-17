@@ -255,6 +255,22 @@ class STTPanel(QWidget):
             self._render()
             self.documentChanged.emit()
 
+    def apply_diarization(self, turns: list[dict]) -> None:
+        """Apply suggested anonymous labels to editable view, not raw Whisper output."""
+        if self.document is None:
+            self.status.setText("Transcribe this media first.")
+            return
+        from ...diarization import attribute_segments
+        source = [entry.as_dict() for entry in self.document.edited]
+        proposed = attribute_segments(source, turns)
+        for old, new in zip(source, proposed):
+            if not old.get("speaker_id") and new.get("speaker_id"):
+                self.document.replace(
+                    old["id"], speaker_id=new["speaker_id"], rename_speaker=True,
+                )
+        self._render()
+        self.documentChanged.emit()
+
     def _export(self) -> None:
         if self.document is None:
             self.status.setText("No transcript to export.")
