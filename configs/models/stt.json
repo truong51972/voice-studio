@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "whisper-small",
+      "task": "stt",
+      "engine": "faster-whisper",
+      "label": "Small · multilingual",
+      "source": "Systran/faster-whisper-small",
+      "license": "Check the model card and license before download",
+      "languages": [
+        "auto",
+        "vi",
+        "en"
+      ],
+      "devices": [
+        "cpu",
+        "cuda"
+      ],
+      "required_assets": [
+        "model.bin",
+        "config.json",
+        "tokenizer.json"
+      ],
+      "expected_size_bytes": null,
+      "sha256": null,
+      "revision": "main",
+      "provider": "huggingface",
+      "default": true,
+      "capabilities": [
+        "offline",
+        "word_timestamps",
+        "vad"
+      ],
+      "inference_defaults": {
+        "language": "auto",
+        "device": "cpu",
+        "compute_type": "int8",
+        "vad": true,
+        "word_timestamps": false,
+        "chunk_seconds": 30,
+        "beam_size": 5
+      }
+    },
+    {
+      "id": "whisper-medium",
+      "task": "stt",
+      "engine": "faster-whisper",
+      "label": "Medium · multilingual",
+      "source": "Systran/faster-whisper-medium",
+      "license": "Check the model card and license before download",
+      "languages": [
+        "auto",
+        "vi",
+        "en"
+      ],
+      "devices": [
+        "cpu",
+        "cuda"
+      ],
+      "required_assets": [
+        "model.bin",
+        "config.json",
+        "tokenizer.json"
+      ],
+      "expected_size_bytes": null,
+      "sha256": null,
+      "revision": "main",
+      "provider": "huggingface",
+      "default": false,
+      "capabilities": [
+        "offline",
+        "word_timestamps",
+        "vad"
+      ],
+      "inference_defaults": {
+        "language": "auto",
+        "device": "cpu",
+        "compute_type": "int8",
+        "vad": true,
+        "word_timestamps": false,
+        "chunk_seconds": 30,
+        "beam_size": 5
+      }
+    },
+    {
+      "id": "whisper-large-v3-turbo",
+      "task": "stt",
+      "engine": "faster-whisper",
+      "label": "Large v3 Turbo",
+      "source": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+      "license": "Check the model card and license before download",
+      "languages": [
+        "auto",
+        "vi",
+        "en"
+      ],
+      "devices": [
+        "cpu",
+        "cuda"
+      ],
+      "required_assets": [
+        "model.bin",
+        "config.json",
+        "tokenizer.json"
+      ],
+      "expected_size_bytes": null,
+      "sha256": null,
+      "revision": "main",
+      "provider": "huggingface",
+      "default": false,
+      "capabilities": [
+        "offline",
+        "word_timestamps",
+        "vad"
+      ],
+      "inference_defaults": {
+        "language": "auto",
+        "device": "cpu",
+        "compute_type": "int8",
+        "vad": true,
+        "word_timestamps": false,
+        "chunk_seconds": 30,
+        "beam_size": 5
+      }
+    },
+    {
+      "id": "whisper-large-v3",
+      "task": "stt",
+      "engine": "faster-whisper",
+      "label": "Large v3",
+      "source": "Systran/faster-whisper-large-v3",
+      "license": "Check the model card and license before download",
+      "languages": [
+        "auto",
+        "vi",
+        "en"
+      ],
+      "devices": [
+        "cpu",
+        "cuda"
+      ],
+      "required_assets": [
+        "model.bin",
+        "config.json",
+        "tokenizer.json"
+      ],
+      "expected_size_bytes": null,
+      "sha256": null,
+      "revision": "main",
+      "provider": "huggingface",
+      "default": false,
+      "capabilities": [
+        "offline",
+        "word_timestamps",
+        "vad"
+      ],
+      "inference_defaults": {
+        "language": "auto",
+        "device": "cpu",
+        "compute_type": "int8",
+        "vad": true,
+        "word_timestamps": false,
+        "chunk_seconds": 30,
+        "beam_size": 5
+      }
+    }
+  ]
+}

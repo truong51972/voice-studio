@@ -1,9 +1,9 @@
 # Offline STT (issue #6)
 
-Install the optional runtime and one selected model through the Model Manager:
+Install Python runtimes once, then install a selected model using **Settings → Models**:
 
 \`\`\`bash
-uv sync --extra stt --dev
+uv sync --locked
 uv run poe start
 \`\`\`
 

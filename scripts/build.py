@@ -57,19 +57,6 @@ def _is_wsl() -> bool:
     return os.name != "nt" and ("microsoft" in release or "wsl" in release)
 
 
-def _verify_models() -> None:
-    from voice_studio.profiles import INFERENCE_PROFILES
-    from voice_studio.model_registry import get_model, installed
-
-    missing = [
-        profile.model_path for key, profile in INFERENCE_PROFILES.items()
-        if not installed(get_model("locator-" + key))
-    ]
-    if missing:
-        pretty = "\n  - ".join(str(path) for path in missing)
-        raise SystemExit("Thiếu model. Chạy `poe models` trước khi build.\n  - " + pretty)
-
-
 def _verify_assets() -> None:
     if not APP_ICON.is_file():
         raise SystemExit(f"Thiếu application icon asset:\n  - {APP_ICON}")
@@ -81,14 +68,23 @@ def _verify_assets() -> None:
         )
 
 
+def _protect_portable_data(distribution: Path) -> None:
+    """Refuse to replace an existing distribution containing user-owned data."""
+    for name in (".projects", ".models", ".settings"):
+        protected = distribution / name
+        if protected.exists() or protected.is_symlink():
+            raise SystemExit(
+                f"Refusing to overwrite portable user data: {protected}. "
+                "Move the app or back up the directory before rebuilding."
+            )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--with-stt", action="store_true", help="Bundle optional offline faster-whisper runtime")
-    parser.add_argument("--with-diarization", action="store_true", help="Bundle optional local pyannote/Torch runtime (no Community-1 model)")
-    args = parser.parse_args()
-    _protect_portable_projects(ROOT / "dist" / APP_NAME)
-    _verify_models()
+    parser.parse_args()
     _verify_assets()
+    # --noconfirm may erase an existing onedir tree. Never delete portable user data.
+    _protect_portable_data(ROOT / "dist" / APP_NAME)
 
     if not APP_ENTRYPOINT.is_file():
         raise SystemExit(f"Thiếu package entrypoint: {APP_ENTRYPOINT}")
@@ -104,11 +100,13 @@ def main() -> None:
         "--paths",
         str(ROOT / "src"),
         "--add-data",
-        f"{ROOT / 'models'}{sep}models",
-        "--add-data",
         f"{APP_ICON}{sep}assets",
+        "--add-data",
+        f"{ROOT / 'configs' / 'models'}{sep}voice_studio/configs/models",
         "--collect-all",
         "sherpa_onnx",
+        "--collect-all",
+        "voice_studio",
         "--collect-all",
         "imageio_ffmpeg",
         "--hidden-import",
@@ -117,32 +115,13 @@ def main() -> None:
         "PySide6.QtMultimediaWidgets",
     ]
 
-    if args.with_stt:
-        required = ("faster_whisper", "ctranslate2", "huggingface_hub")
-        missing_backends = [name for name in required if importlib.util.find_spec(name) is None]
-        if missing_backends:
-            raise SystemExit(
-                "Install optional STT runtime before building: uv sync --dev --extra stt; "
-                + ", ".join(missing_backends)
-            )
-        for name in required:
-            cmd += ["--collect-all", name]
-        print("[build] Including offline STT runtime; no speech models are shipped.")
-
-    if args.with_diarization:
-        required = ('pyannote.audio', 'torch', 'torchaudio', 'huggingface_hub')
-        missing = []
-        for name in required:
-            try:
-                if importlib.util.find_spec(name) is None:
-                    missing.append(name)
-            except ModuleNotFoundError:
-                missing.append(name)
-        if missing:
-            raise SystemExit('Install optional diarization runtime before building: uv sync --dev --extra diarization; ' + ', '.join(missing))
-        for name in required:
-            cmd += ['--collect-all', name]
-        print('[build] Including optional Community-1 runtime; install the local model separately. Native QA is required.')
+    from voice_studio.diagnostics import runtime_import_errors
+    errors = runtime_import_errors()
+    if errors:
+        raise SystemExit(f"Repair required production runtimes before building: {errors}")
+    for name in ("faster_whisper", "ctranslate2", "huggingface_hub", "torch", "torchaudio", "torchcodec", "pyannote.audio"):
+        cmd += ["--collect-all", name]
+    print("[build] Including all production runtimes; STT/diarization weights are user-installed.")
 
     bundled_ort_source: Path | None = None
     if os.name == "nt":
@@ -179,6 +158,8 @@ def main() -> None:
         "executable": executable,
         "assets/voice-studio.png": internal_dir / "assets" / "voice-studio.png",
     }
+    for name in ("speaker_matching", "stt", "diarization"):
+        required_outputs[f"catalog/{name}.json"] = internal_dir / "voice_studio" / "configs" / "models" / f"{name}.json"
     if os.name == "nt":
         required_outputs["sherpa_onnx/lib/onnxruntime.dll"] = (
             internal_dir / "sherpa_onnx" / "lib" / "onnxruntime.dll"
@@ -198,7 +179,7 @@ def main() -> None:
     print("[build] Running packaged executable smoke test...")
     try:
         smoke = subprocess.run(
-            [str(executable), "--smoke-test"] + (["--require-diarization"] if args.with_diarization else []),
+            [str(executable), "--smoke-test"],
             cwd=dist_dir,
             check=False,
             capture_output=True,
@@ -226,14 +207,6 @@ def main() -> None:
         print(f"[ok] Windows build hoàn tất: {executable}")
     else:
         print(f"[ok] Build hoàn tất cho {system}: {executable}")
-
-
-def _protect_portable_projects(distribution: Path) -> None:
-    if (distribution / ".projects").exists():
-        raise SystemExit(
-            f"Refusing to overwrite a portable installation containing {distribution / '.projects'}. "
-            "Back up/move the entire .projects folder outside dist before rebuilding."
-        )
 
 
 if __name__ == "__main__":

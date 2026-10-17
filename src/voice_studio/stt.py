@@ -14,24 +14,31 @@ import numpy as np
 
 from .media import _read_chunk, stream_audio
 from .model_registry import get_model, installed, model_path, preflight
+from .model_catalog import default_model
+
+_STT_DEFAULT = default_model("stt")
+_STT_PARAMETERS = _STT_DEFAULT.inference_defaults
 
 SAMPLE_RATE = 16_000
 
 @dataclass(frozen=True, slots=True)
 class STTOptions:
-    model_id: str = "whisper-small"
-    language: str = "auto"
-    vad: bool = True
-    word_timestamps: bool = False
-    chunk_seconds: int = 30
-    device: str = "cpu"
-    compute_type: str = "int8"
+    model_id: str = _STT_DEFAULT.id
+    language: str = _STT_PARAMETERS.language
+    vad: bool = _STT_PARAMETERS.vad
+    word_timestamps: bool = _STT_PARAMETERS.word_timestamps
+    chunk_seconds: int = _STT_PARAMETERS.chunk_seconds
+    beam_size: int = _STT_PARAMETERS.beam_size
+    device: str = _STT_PARAMETERS.device
+    compute_type: str = _STT_PARAMETERS.compute_type
 
     def __post_init__(self):
         if self.language not in ("auto", "vi", "en"):
             raise ValueError("Language must be auto, vi or en")
         if not 5 <= self.chunk_seconds <= 60:
             raise ValueError("Chunk duration must be 5–60 seconds")
+        if not 1 <= self.beam_size <= 20:
+            raise ValueError("Beam size must be 1–20")
         if self.device not in ("cpu", "cuda"):
             raise ValueError("Unsupported STT device")
 
@@ -82,7 +89,7 @@ def transcribe(
         hypothesis, info = engine.transcribe(
             samples, language=None if options.language == "auto" else options.language,
             vad_filter=options.vad, word_timestamps=options.word_timestamps,
-            beam_size=5,
+            beam_size=options.beam_size,
         )
         spoken_language = getattr(info, "language", spoken_language)
         for segment in hypothesis:

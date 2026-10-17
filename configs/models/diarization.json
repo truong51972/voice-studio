@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "pyannote-community-1",
+      "task": "diarization",
+      "engine": "pyannote",
+      "label": "Community-1",
+      "source": "pyannote/speaker-diarization-community-1",
+      "provider": "local-folder",
+      "revision": "main",
+      "license": "CC-BY-4.0; accept upstream gated access conditions before obtaining weights",
+      "access": "Accept the upstream Hugging Face access/license terms, obtain Community-1 on your workstation, then Import local folder in Settings → Models. No access token is stored by Voice Studio.",
+      "languages": [
+        "multilingual"
+      ],
+      "devices": [
+        "cpu"
+      ],
+      "required_assets": [
+        "config.yaml",
+        "segmentation/pytorch_model.bin",
+        "embedding/pytorch_model.bin",
+        "plda/plda.npz",
+        "plda/xvec_transform.npz"
+      ],
+      "capabilities": [
+        "offline",
+        "anonymous_speakers"
+      ],
+      "default": true,
+      "inference_defaults": {
+        "device": "cpu"
+      }
+    }
+  ]
+}

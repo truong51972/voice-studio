@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from .media import ffmpeg_executable
+from .model_catalog import default_model
 
 
 def _speaker_turns(output, *, exclusive: bool = False, label_map: dict | None = None) -> list[dict]:
@@ -57,11 +58,8 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None, wor
             raise FileNotFoundError("Install a complete Community-1 model folder locally first.")
         os.environ["HF_HUB_OFFLINE"] = "1"
         try:
-            from pyannote.audio import Pipeline
-        except ImportError as exc:
-            raise RuntimeError("Install optional pyannote audio runtime: uv sync --extra diarization") from exc
-        try:
-            pipeline = Pipeline.from_pretrained(str(model_dir))
+            from .model_backends import load_community
+            pipeline = load_community(model_dir)
         except Exception as exc:
             raise RuntimeError("Cannot load the local Community-1 model. Install a complete compatible "
                                "model with its local dependencies; no token/download is performed. " + str(exc)) from exc
@@ -79,7 +77,10 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None, wor
         if process.returncode:
             raise RuntimeError("Could not decode audio for diarization: " + process.stderr.decode(errors="replace")[-400:])
         try:
-            output = pipeline(str(wav))
+            import soundfile as sf
+            import torch
+            waveform, rate = sf.read(wav, dtype="float32", always_2d=True)
+            output = pipeline({"waveform": torch.from_numpy(waveform.T.copy()), "sample_rate": rate})
         except Exception as exc:
             raise RuntimeError('Local diarization failed. Verify Community-1 assets, pyannote.audio 4 and its Torch/audio codec runtime. ' + str(exc)) from exc
     if not hasattr(output, "speaker_diarization"):
@@ -89,7 +90,7 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None, wor
     exclusive_turns = _speaker_turns(output, exclusive=True, label_map=labels)
     return {
         "kind": "diarization", "source": str(media),
-        "model": "pyannote-community-1",
+        "model": default_model("diarization").id,
         "speakers": sorted({t["speaker_id"] for t in turns}),
         "turns": turns,
         "exclusive_turns": exclusive_turns,

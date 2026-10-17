@@ -156,13 +156,51 @@ class TaskManager:
         self.root.mkdir(parents=True, exist_ok=True)
         self._context = mp.get_context("spawn")
         self._tasks: dict[str, _Task] = {}
+        self._model_leases: dict[str, list] = {}
+        self._job_models: dict[str, str | None] = {}
+
+    @staticmethod
+    def _requested_model(request: TaskRequest):
+        action = request.inputs.get("action") if request.kind == "editor" else request.kind
+        if action not in ("stt", "diarization", "locator", "reference", "reconcile"):
+            return None
+        from .model_catalog import default_model, descriptors, get_model
+        options = request.inputs.get("options") or request.inputs
+        if action == "stt":
+            return get_model(options["model_id"])
+        if action == "diarization":
+            return default_model("diarization")
+        return next(model for model in descriptors("locator") if model.profile_key == options["profile"])
+
+    def _release_model(self, model_id: str | None):
+        if model_id is None:
+            return
+        record = self._model_leases[model_id]
+        record[1] -= 1
+        if record[1] == 0:
+            record[0].__exit__(None, None, None)
+            del self._model_leases[model_id]
 
     def submit(self, request: TaskRequest) -> str:
-        identifier = uuid.uuid4().hex
-        folder = self.root / identifier
-        folder.mkdir(parents=True)
-        self._tasks[identifier] = _Task(identifier, request, folder)
-        return identifier
+        from .model_service import ModelService
+        model = self._requested_model(request)
+        model_id = model.id if model else None
+        if model_id is not None:
+            if model_id not in self._model_leases:
+                lease = ModelService().use(model)
+                lease.__enter__()
+                self._model_leases[model_id] = [lease, 0]
+            self._model_leases[model_id][1] += 1
+        try:
+            identifier = uuid.uuid4().hex
+            folder = self.root / identifier
+            folder.mkdir(parents=True)
+            self._tasks[identifier] = _Task(identifier, request, folder)
+            self._job_models[identifier] = model_id
+            return identifier
+        except BaseException:
+            self._release_model(model_id)
+            raise
 
     def poll(self) -> tuple[TaskSnapshot, ...]:
         # Reap terminated jobs before scheduling new ones.
@@ -267,6 +305,7 @@ class TaskManager:
         if task.snapshot.state in ("queued", "running"):
             raise RuntimeError("Cannot delete active task")
         self._tasks.pop(identifier)
+        self._release_model(self._job_models.pop(identifier, None))
         shutil.rmtree(task.folder, ignore_errors=True)
 
     def close(self) -> None:

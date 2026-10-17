@@ -22,6 +22,7 @@ class STTPanel(QWidget):
     seekRequested = Signal(float)
     resultReady = Signal(object)
     documentChanged = Signal()
+    modelsRequested = Signal(str)
 
     def __init__(self, parent=None, *, session=None):
         super().__init__(parent)
@@ -38,7 +39,12 @@ class STTPanel(QWidget):
         self.model = QComboBox()
         for descriptor in descriptors("stt"):
             self.model.addItem(descriptor.label, descriptor.id)
+        from ...model_service import ModelService
+        self.model.setCurrentIndex(max(0, self.model.findData(ModelService().default_id("stt"))))
         settings.addRow("Model", self.model)
+        self.models_button = QPushButton("Manage models…")
+        self.models_button.clicked.connect(lambda: self.modelsRequested.emit(str(self.model.currentData())))
+        settings.addRow(self.models_button)
         self.language = QComboBox()
         for label, value in (("Auto detect", "auto"), ("Vietnamese", "vi"), ("English", "en")):
             self.language.addItem(label, value)
@@ -99,9 +105,17 @@ class STTPanel(QWidget):
         self.table.itemDoubleClicked.connect(lambda _item: self.editingStarted.emit())
         self.table.cellClicked.connect(self._seek)
         layout.addWidget(self.table, 1)
+        self.refresh_models()
         self._timer = QTimer(self)
         self._timer.setInterval(100)
         self._timer.timeout.connect(self._poll)
+
+    def refresh_models(self):
+        from ...model_service import ModelService
+        service = ModelService()
+        for index in range(self.model.count()):
+            entry = get_model(str(self.model.itemData(index)))
+            self.model.setItemText(index, f"{entry.label} · {service.status(entry).state}")
 
     def set_media(self, source: str | None) -> None:
         if source == self._source:
@@ -125,7 +139,8 @@ class STTPanel(QWidget):
         model_id = str(self.model.currentData())
         blockers = preflight(get_model(model_id), device="cpu")
         if blockers:
-            self.status.setText("; ".join(blockers) + " · Open Models to install.")
+            self.status.setText("; ".join(blockers) + " · Open Settings → Models.")
+            self.modelsRequested.emit(model_id)
             return
         from ...stt import STTOptions
         from dataclasses import asdict

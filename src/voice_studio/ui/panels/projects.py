@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QGridLayout, QInputDialog,
+from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInputDialog,
                                QHeaderView, QLabel, QMenu, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -27,14 +27,12 @@ class ProjectsPanel(QWidget):
         self._active_document = None
         self._active_review_key = None
         layout = QVBoxLayout(self)
-        buttons = QGridLayout()
-        for index, (label, callback) in enumerate((("New", self._new), ("Open", self._open),
-                                                 ("Recent", self._recent), ("Import", self._add),
-                                                 ("Relink", self._relink), ("STT all", self._run),
-                                                 ("Export all", self._export))):
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            buttons.addWidget(button, index // 3, index % 3)
+        buttons = QHBoxLayout()
+        buttons.addWidget(QLabel("Sources"), 1)
+        self.add_button = QPushButton("+")
+        self.add_button.setToolTip("Import media (Ctrl+I)")
+        self.add_button.clicked.connect(self._add)
+        buttons.addWidget(self.add_button)
         layout.addLayout(buttons)
         self.status = QLabel("New/Open project · external media references")
         self.status.setWordWrap(True)

@@ -23,3 +23,5 @@ dist/
 *.spec
 models/*.onnx
 models/*.part
+.models/
+.settings/

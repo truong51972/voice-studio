@@ -16,6 +16,7 @@ class DiarizationPanel(QWidget):
     startRequested = Signal()
     seekRequested = Signal(float)
     turnsReady = Signal(object)
+    modelsRequested = Signal(str)
 
     def __init__(self, parent=None, *, session=None):
         super().__init__(parent)
@@ -28,12 +29,14 @@ class DiarizationPanel(QWidget):
         layout.addWidget(QLabel("Optional local Community-1 · anonymous speaker clustering"))
         choose = QHBoxLayout()
         self.model_folder = QLineEdit()
-        self.model_folder.setPlaceholderText("Local Community-1 directory (config.yaml)")
-        browse = QPushButton("Browse")
-        browse.clicked.connect(self._browse)
+        self.model_folder.setReadOnly(True)
+        self.model_folder.setPlaceholderText("Import Community-1 through Settings → Models")
+        browse = QPushButton("Manage models…")
+        browse.clicked.connect(lambda: self.modelsRequested.emit("pyannote-community-1"))
         choose.addWidget(self.model_folder, 1)
         choose.addWidget(browse)
         layout.addLayout(choose)
+        self.refresh_models()
         controls = QHBoxLayout()
         self.run_button = QPushButton("Analyze speakers")
         self.run_button.clicked.connect(self.start)
@@ -71,6 +74,11 @@ class DiarizationPanel(QWidget):
         self.output = None
         self.table.setRowCount(0)
         self.apply_button.setEnabled(False)
+
+    def refresh_models(self):
+        from ...model_service import ModelService
+        from ...model_catalog import default_model
+        self.model_folder.setText(str(ModelService().path(default_model("diarization"))))
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Community-1 local model directory")

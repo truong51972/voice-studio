@@ -7,17 +7,15 @@ and does not perform unrestricted speaker discovery.
 
 ## Auto Detect
 
-1. Install the optional source runtime: `uv sync --dev --extra diarization`.
+1. Install all feature runtimes with `uv sync --locked` (source checkout) or use the packaged app.
 2. Obtain a complete local [Community-1 model](https://huggingface.co/pyannote/speaker-diarization-community-1),
    accepting its upstream terms yourself, with all dependencies available locally.
-3. New/Open a project and import audio/video. In **Speakers → Auto Detect**, Browse
-   to its `config.yaml` folder and select **Auto Detect Speakers**. Toolbar scope
-   chooses one source or the whole project (serialized jobs).
+3. In **Settings → Models**, import that complete folder, verify integrity and run **Test readiness**.
+4. New/Open a project and import audio/video. Use **Process → Auto Detect Speakers**; toolbar scope chooses selected source or whole project (serialized jobs).
 
 No token is requested, model downloaded or cloud API called by analysis.
 Missing/incompatible runtime/assets produce an error and a retryable project job.
-Default Windows builds bundle the runtime using `--with-diarization`;
-Community-1 assets remain separate. See [Windows release](windows_release.md).
+Default Windows builds bundle the diarization runtime; Community-1 weights stay separate. See [Windows release](windows_release.md).
 
 Original `turns` retain overlapping voices for source/annotation tracks.
 `exclusive_turns` uses the same source-local `cluster_id` mapping and is used for

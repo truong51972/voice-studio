@@ -1,22 +1,23 @@
-# Model registry and local assets
+# Model management — Voice Studio
 
-Model Manager (toolbar) lists task-scoped Locator and STT models. Locator profiles
-remain the original SHA-256-verified CAM++ and ERes2NetV2, including unchanged
-thresholds. STT model choices are *not* automatically installed or loaded.
+The Python/runtime installation is independent of model assets. On supported Windows/Linux x64, one `uv sync --locked` provides all production feature runtimes. No models are downloaded on application startup. Users manage assets within **Settings → Models**, not the CLI.
 
-To enable STT backends, run \`uv sync --extra stt\`. Open **Models** in
-the app and install one model. Downloads are explicit and run outside the GUI
-thread. STT snapshots are placed in the per-user writable data directory, not
-the executable directory (override \`VOICE_STUDIO_MODEL_DIR\` for testing).
+## Model Catalog
 
-**Integrity:** installed STT assets are from the resolved Hugging Face commit;
-the manifest records the commit and local SHA-256 digests, and validates them
-on next use. These digests are **locally computed**, not publisher-signed.
-Users should review each model card/license and publisher. No external network
-access occurs during ordinary startup/status checks; snapshots are fetched
-only by explicit installation. Re-running downloads uses Hugging Face's cache
-(resume/retry behavior depends on the backend). Partial installations are kept
-out of the model registry.
+The versioned, validated JSON files under `configs/models/` are the single source for model IDs, supported backend, source/revision, license notes, required assets, and inference defaults. `model_catalog.py` enforces safe model asset paths and a known engine allowlist; inference adapters stay in Python. All seven existing model definitions are included.
 
-A CUDA option is not marked ready by a mere import check. CPU is the safe
-default; CUDA requires an actual backend/driver/DLL smoke test.
+## Lifecycle and portability
+
+By default model assets are in `.models/`, model preferences in `.settings/models.json`, and projects in `.projects/`, all beside the application executable (or repository root in source builds). User folders are excluded from release ZIPs. Installing updates must not erase them.
+
+The Model Manager supports explicit **Install / Repair**, **Import local folder**, **Discover legacy**, **Verify integrity**, **Test readiness**, **Use as default**, and **Remove / unlink**. Storage can be changed with an explicit path. External/legacy imports are linked without copying; unlink never deletes external weights. Download jobs expose progress, cancellation, retry/resume, and atomic promotion. The app refuses to mutate files for models locked by active inference jobs.
+
+Statuses distinguish incomplete installs, locally verified assets, and CPU inference-ready models. A manifest records an immutable revision and locally computed hashes, which are integrity checks rather than publisher signatures. Quick GUI status checks do not repeatedly hash multi-GB weights. The explicit **Test readiness** step runs an offline isolated inference probe.
+
+## Community-1
+
+Community-1 is subject to upstream gated access terms. Download it only after accepting the applicable upstream conditions; then use **Import local folder**. The app validates local assets/configuration but never bypasses gating or automatically downloads Community-1 on startup. Run **Test readiness** before analysis.
+
+## Supported/tested boundary
+
+The CI matrix covers Windows/Linux x64 on Python 3.11/3.12, native import checks, and model-free regression. Native Windows TorchCodec/FFmpeg shared library packaging and clean-machine playback/model smoke still require release QA. CUDA is not guaranteed by a CPU import check. See [runtime](inference_runtime.md), [Windows release](windows_release.md) and [QA](quality.md).

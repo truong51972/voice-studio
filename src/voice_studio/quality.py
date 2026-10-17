@@ -129,7 +129,8 @@ def main() -> None:
     parser.add_argument("--fixtures", type=Path, required=True,
                         help="Consented JSON array with source and reference text")
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--model", default="whisper-small")
+    from .model_catalog import default_model
+    parser.add_argument("--model", default=default_model("stt").id)
     parser.add_argument("--language", choices=["auto", "vi", "en"], default="vi")
     args = parser.parse_args()
     examples = json.loads(args.fixtures.read_text(encoding="utf-8"))

@@ -9,7 +9,7 @@ AI Voice Studio exposes user-facing inference profiles instead of asking users t
 | `fast` | CAM++ VoxCeleb | ~28.2 MiB | Default CPU-first analysis and quick iteration |
 | `accurate` | ERes2NetV2 common | ~68.1 MiB | Higher-capacity speaker embedding when latency is less important |
 
-Both models run locally through `sherpa-onnx`. `uv run poe models` downloads and verifies every configured profile model before packaging.
+Both models run locally through `sherpa-onnx`. Use **Settings → Models** to install and verify only the model profiles needed by the user. `uv run poe models` is an optional developer prefetch, not a packaging prerequisite.
 
 ## Thresholds are profile configuration
 
