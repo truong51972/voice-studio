@@ -17,6 +17,7 @@ from ..editor_tasks import waveform_path
 from ..task_runtime import reconstruct_locator
 from ..workspace import projects_directory
 from .editor_layout import EditorLayoutMixin
+from .actions import EditorActionsMixin
 from .model_manager import ModelManagerDialog
 from .panels.locator import LocatorPanelsMixin
 from .playback import SequencePlayback
@@ -26,7 +27,7 @@ from .theme import APP_STYLESHEET
 from .timecode import _fmt_time, _parse_timecode, milliseconds_to_seconds, seconds_to_milliseconds
 
 
-class MainWindow(EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
+class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('Voice Studio · Editor')
@@ -47,12 +48,11 @@ class MainWindow(EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
         self._audio_output = QAudioOutput(self)
         self._player.setAudioOutput(self._audio_output)
         self.playback = SequencePlayback(self._player, self)
-        tabs = QTabWidget()
         self.analysis_page = self._build_analysis_tab()
-        tabs.addTab(self.analysis_page, 'Workspace')
-        tabs.addTab(self._help(), 'Help')
-        self.setCentralWidget(tabs)
-        self._build_menu()
+        self.setCentralWidget(self.analysis_page)
+        self._build_actions()
+        self.stt_panel.modelsRequested.connect(self._open_models)
+        self.diarization_panel.modelsRequested.connect(self._open_models)
         self.session.changed.connect(self._refresh_project)
         self.session.resultReady.connect(self._result_ready)
         self.session.statusChanged.connect(self._status)
@@ -75,7 +75,7 @@ class MainWindow(EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
     def _guard(self, callback, *args, **kwargs):
         try:
             return callback(*args, **kwargs)
-        except (ValueError, OSError, KeyError, StopIteration, TypeError) as exc:
+        except (ValueError, OSError, KeyError, StopIteration, TypeError, RuntimeError) as exc:
             self._status(str(exc))
             return None
 
@@ -298,15 +298,29 @@ class MainWindow(EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
             self._run_diarization()
 
     def _queue_targets(self, task, options, all_sources=False):
+        if task in ('locator', 'stt', 'diarization'):
+            from ..model_catalog import descriptors, get_model, default_model
+            from ..model_service import ModelService
+            if task == 'locator':
+                model = next(entry for entry in descriptors('locator') if entry.profile_key == options['profile'])
+            elif task == 'stt':
+                model = get_model(options['model_id'])
+            else:
+                model = default_model('diarization')
+            blockers = ModelService().preflight(model, device=options.get('device', 'cpu'))
+            if blockers:
+                self._status('; '.join(blockers))
+                self._open_models(model.id)
+                return
         for media_id in self._targets(all_sources):
             self.session.analyze(task, media_id, options)
 
     def _run_diarization(self):
-        folder = self.diarization_panel.model_folder.text().strip()
-        if not folder or not (Path(folder) / 'config.yaml').is_file():
-            self._status('Choose a complete locally installed Community-1 folder in Speakers. Default Windows packages include its runtime; source installs need uv sync --extra diarization. See Help and docs/diarization.md. Manual references do not require pyannote.')
-            return
-        self._guard(self._queue_targets, 'diarization', {'model_directory': str(Path(folder).resolve())})
+        from ..model_catalog import default_model
+        from ..model_service import ModelService
+        model = default_model('diarization')
+        folder = ModelService().path(model)
+        self._guard(self._queue_targets, 'diarization', {'model_directory': str(folder)})
 
     def _run_stt(self, all_sources=False):
         self._guard(self._queue_targets, 'stt', self.projects_panel._options(), all_sources)
@@ -554,8 +568,13 @@ class MainWindow(EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
         project.save()
         self._status('Project saved')
 
-    def _open_models(self):
-        ModelManagerDialog(self).exec()
+    def _open_models(self, model_id=None):
+        dialog = ModelManagerDialog(self, model_id=model_id if isinstance(model_id, str) else None)
+        dialog.modelsChanged.connect(self.stt_panel.refresh_models)
+        dialog.modelsChanged.connect(self.diarization_panel.refresh_models)
+        dialog.exec()
+        self.stt_panel.refresh_models()
+        self.diarization_panel.refresh_models()
 
     def closeEvent(self, event):
         try:
@@ -564,6 +583,7 @@ class MainWindow(EditorLayoutMixin, LocatorPanelsMixin, QMainWindow):
             self._status(f"Could not save project: {exc}")
             event.ignore()
             return
+        self._stop_actions()
         self.playback.player.stop()
         super().closeEvent(event)
 
