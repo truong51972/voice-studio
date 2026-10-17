@@ -17,6 +17,7 @@ from ..pipeline import AnalysisBundle
 from ..profiles import get_inference_profile
 from .model_manager import ModelManagerDialog
 from .panels.locator import LocatorPanelsMixin
+from .panels.stt import STTPanel
 from .resources import _resource_path
 from .theme import APP_STYLESHEET
 from .timecode import _fmt_time, _parse_timecode, milliseconds_to_seconds, seconds_to_milliseconds
@@ -135,6 +136,9 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.inspector_tabs.addTab(self._build_speakers_panel(), "Speakers")
         self.inspector_tabs.addTab(self._build_analysis_panel(), "Analysis")
         self.inspector_tabs.addTab(self._build_segments_panel(), "Segments")
+        self.stt_panel = STTPanel(self)
+        self.stt_panel.seekRequested.connect(self._seek_to_seconds)
+        self.inspector_tabs.addTab(self.stt_panel, "STT")
 
         self.workspace_splitter.addWidget(preview_panel)
         self.workspace_splitter.addWidget(self.inspector_tabs)
@@ -233,6 +237,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
             return
 
         self._target_path = path
+        self.stt_panel.set_media(path)
         self._bundle = None
         self.target_label.setText(Path(path).name)
         self.preview_status.setText("Media loaded")
@@ -381,6 +386,8 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self._seek_to_seconds(seconds)
 
     def closeEvent(self, event):
+        self.stt_panel.cancel()
+        self.stt_panel._manager.close()
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
         super().closeEvent(event)

@@ -21,13 +21,13 @@ TaskState = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 @dataclass(frozen=True)
 class TaskRequest:
-    kind: Literal["locator", "diagnostic"]
+    kind: Literal["locator", "diagnostic", "stt"]
     inputs: dict
     device: Literal["cpu", "gpu"] = "cpu"
     def __post_init__(self):
         if self.device not in ("cpu", "gpu"):
             raise ValueError("Unknown task device")
-        if self.kind not in ("locator", "diagnostic"):
+        if self.kind not in ("locator", "diagnostic", "stt"):
             raise ValueError("Unknown task kind")
         # Never marshal sample arrays, model instances, Qt widgets or arbitrary callables.
         def plain(x):
@@ -56,6 +56,17 @@ def _child_entry(request: TaskRequest, artifact: str) -> None:
             delay = float(request.inputs.get("seconds", 0.0))
             time.sleep(min(max(delay, 0), 10))
             payload = {"kind": "diagnostic", "value": str(request.inputs.get("value", ""))}
+        elif request.kind == "stt":
+            from .stt import STTOptions, transcribe
+            def progress(stage: str):
+                (folder / "status.json").write_text(
+                    json.dumps({"stage": stage}), encoding="utf-8"
+                )
+            payload = transcribe(
+                str(request.inputs["target_path"]),
+                STTOptions(**request.inputs["options"]),
+                progress=progress,
+            )
         else:
             from .service import LocatorService
             refs = [(str(item[0]), None if item[1] is None else str(item[1])) for item in request.inputs["references"]]
