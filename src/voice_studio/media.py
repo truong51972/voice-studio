@@ -13,7 +13,7 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 
 
 def resolve_media_path(value: Any) -> Path:
-    """Resolve the common filepath shapes returned by Gradio upload components."""
+    """Resolve a local filepath from a path, file descriptor mapping or file-like object."""
     if value is None:
         raise ValueError("Chưa có video đầu vào.")
 

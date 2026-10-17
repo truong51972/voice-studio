@@ -41,6 +41,8 @@ The player, overlay, seek/playhead and QSplitter structure intentionally remain 
 
 ## Repo
 
+Architecture and timebase contracts: [docs/architecture.md](docs/architecture.md).
+
 ```text
 src/voice_studio/  desktop UI, media, matching, local services
 scripts/           model download and development build helper

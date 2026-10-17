@@ -10,13 +10,15 @@ from scipy.signal import resample_poly
 
 from .config import SAMPLE_RATE
 
-GradioAudio: TypeAlias = tuple[int, np.ndarray] | str | Path | None
+AudioInput: TypeAlias = tuple[int, np.ndarray] | str | Path | None
+# Compatibility for older Locator callers (remove after consumers migrate).
+GradioAudio: TypeAlias = AudioInput
 
 
 def to_mono_float32(audio: np.ndarray) -> np.ndarray:
     x = np.asarray(audio)
     if x.ndim == 2:
-        # Gradio commonly returns shape [samples, channels].
+        # Decoder arrays commonly return shape [samples, channels].
         x = x.mean(axis=1)
     elif x.ndim != 1:
         raise ValueError("Audio phải là mono hoặc stereo.")
@@ -53,7 +55,7 @@ def resample_audio(samples: np.ndarray, source_rate: int, target_rate: int = SAM
     return np.ascontiguousarray(y, dtype=np.float32)
 
 
-def prepare_gradio_audio(value: GradioAudio, target_rate: int = SAMPLE_RATE) -> np.ndarray:
+def prepare_audio(value: AudioInput, target_rate: int = SAMPLE_RATE) -> np.ndarray:
     if value is None:
         raise ValueError("Chưa có audio đầu vào.")
 
@@ -72,3 +74,8 @@ def rms(samples: np.ndarray) -> float:
     if samples.size == 0:
         return 0.0
     return float(np.sqrt(np.mean(np.square(samples, dtype=np.float64))))
+
+
+# Backward-compatible function until external integration callers migrate.
+def prepare_gradio_audio(value: AudioInput, target_rate: int = SAMPLE_RATE) -> np.ndarray:
+    return prepare_audio(value, target_rate)
