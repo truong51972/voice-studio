@@ -32,13 +32,15 @@ def test_one_shared_qt_player_and_inspector_layout():
         ]
         assert window.video_widget.overlay.parent() is window.video_widget
         assert window.windowTitle().startswith("Voice Studio")
+        # A freshly created Qt slider has a 0..0 range, so duration must
+        # be set before asserting that position updates are accepted.
+        window._on_player_duration(60_000)
+        assert window.timeline._duration == 60
+        assert window.position_slider.maximum() == 60_000
         window._on_player_position(3000)
         assert window.timeline._position_seconds == 3
         assert window.video_widget.overlay._position_seconds == 3
         assert window.position_slider.value() == 3000
-        window._on_player_duration(60_000)
-        assert window.timeline._duration == 60
-        assert window.position_slider.maximum() == 60_000
     finally:
         window.close()
         app.processEvents()
