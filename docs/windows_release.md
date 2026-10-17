@@ -3,9 +3,9 @@
 ## One-click developer build
 
 Run \`one-click.bat\` from a **Windows PowerShell/CMD machine** with \`uv\`.
-The script installs all production Python runtimes, fetches SHA-256 verified
+The default build installs STT and Auto Detect (pyannote/Torch) runtimes, fetches SHA-256 verified
 Locator models, packages the PySide6 application as \`dist/voice-studio/\`,
-runs the packaged Qt/FFmpeg/speaker runtime smoke and emits a Windows ZIP +
+runs the packaged Qt/FFmpeg/speaker and mandatory pyannote/Torch import smoke, then emits a Windows ZIP +
 SHA256 checksum.
 
 The same workflow can be triggered manually via **GitHub Actions →
@@ -16,16 +16,14 @@ production releases.
 
 The baseline Locator model files are bundled (roughly 96 MiB); STT
 models are **not** bundled or downloaded until a user selects Install
-in the Model Manager. Every build includes STT and pyannote Python runtimes;
-there are no feature-dependent build flags. The versioned JSON catalogs are
-bundled under \`_internal/voice_studio/configs/models/\`.
-
-The build fails if any production backend cannot actually import, rather
-than silently producing a reduced-feature package. In particular, TorchCodec
-needs compatible FFmpeg shared libraries on the build and target machines.
-Automatic bundling of these native libraries on a clean Windows host is an
-outstanding release gate; a successful lock resolution or Linux import check
-does not sign off the Windows package.
+in the Model Manager. Windows STT builds use \`--with-stt\` to bundle
+Python/CTranslate2 runtime libraries. Both default Windows build paths also use
+`--with-diarization` to bundle pyannote/Torch. **Community-1 weights are not bundled**:
+obtain a complete local Community-1 folder under its upstream terms, including
+its local dependencies, then choose its `config.yaml` folder in **Speakers → Auto
+Detect → Browse**. Analysis never requests a token or downloads a model.
+See [local installation and operation](diarization.md). Runtime imports alone do
+not verify a complete model installation or successful real inference.
 
 Run \`voice-studio.exe --smoke-test\` on a real machine or the packaged
 candidate workflow; use \`voice-studio.exe --diagnostics\` from a terminal
@@ -35,7 +33,15 @@ voice_studio.diagnostics\` on a Python-enabled dev environment.
 
 ### Manual release sign-off (not yet achieved by CI)
 
-- Verify actual audio/video playback, seek, microphone recording and
+Projects use `.projects/` beside `voice-studio.exe`, independently of `_internal/`
+and the launch working directory. Test actual onedir behavior and a read-only
+install; no AppData fallback is permitted. Back up/move `.projects/` before
+rebuilding an existing distribution (the build refuses to overwrite it), and
+restore it beside a freshly extracted executable when upgrading. Keep original
+external media or relink their new locations. Release ZIPs exclude `.projects/`.
+See [portable project backup/recovery](projects.md).
+
+- Verify actual audio/video playback, sequential seek, source-range references and
   still-responsive UI after >60 minutes.
 - Install Whisper Small through Model Manager, transcribe a consented
   Vietnamese clip on CPU and confirm timestamps/export.
@@ -49,3 +55,22 @@ Linux/WSL PyInstaller builds create Linux binaries, **not Windows EXEs**.
 No cross-compilation claim. ZIP timestamps/file ordering are normalized,
 but binary byte-for-byte reproducibility also depends on frozen DLL/wheel
 versions. Keep release candidate unsigned until real Windows QA.
+
+### Default Auto Detect runtime build
+
+The default one-click and workflow packages include pyannote/Torch. The equivalent
+manual build is:
+
+```powershell
+uv sync --dev --extra stt --extra diarization
+uv run python scripts/build.py --with-stt --with-diarization
+```
+
+This includes runtime packages, not Community-1 model weights or tokens. Obtain a
+complete local Community-1 folder separately under its upstream terms and choose
+it in Speakers. Verify Torch/audio codec DLL compatibility and real inference on
+the candidate; a successful build or import smoke is not model/playback acceptance.
+The build fails before packaging if requested runtime packages are unavailable.
+Its frozen executable smoke runs with `--require-diarization` and fails the build
+if pyannote, Torch or torchaudio cannot import. A smaller developer-only build may
+omit `--with-diarization`, but that is not the default Windows deliverable.

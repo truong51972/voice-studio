@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QFileDialog, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -13,13 +13,14 @@ from ...task_runtime import TaskManager, TaskRequest
 
 
 class DiarizationPanel(QWidget):
+    startRequested = Signal()
     seekRequested = Signal(float)
     turnsReady = Signal(object)
-    modelsRequested = Signal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, session=None):
         super().__init__(parent)
-        self._manager = TaskManager(cpu_concurrency=1)
+        self.session = session
+        self._manager = TaskManager(cpu_concurrency=1) if session is None else None
         self._job_id = None
         self._source: str | None = None
         self.output: dict | None = None
@@ -27,12 +28,9 @@ class DiarizationPanel(QWidget):
         layout.addWidget(QLabel("Optional local Community-1 · anonymous speaker clustering"))
         choose = QHBoxLayout()
         self.model_folder = QLineEdit()
-        self.model_folder.setReadOnly(True)
-        self.refresh_models()
         self.model_folder.setPlaceholderText("Local Community-1 directory (config.yaml)")
         browse = QPushButton("Browse")
-        browse.setText("Settings → Models…")
-        browse.clicked.connect(lambda: self.modelsRequested.emit("pyannote-community-1"))
+        browse.clicked.connect(self._browse)
         choose.addWidget(self.model_folder, 1)
         choose.addWidget(browse)
         layout.addLayout(choose)
@@ -55,6 +53,9 @@ class DiarizationPanel(QWidget):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Start", "End", "Anonymous", "Status"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        for column in (0, 1, 3):
+            self.table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.cellClicked.connect(self._seek)
         layout.addWidget(self.table)
         self._timer = QTimer(self)
@@ -64,16 +65,12 @@ class DiarizationPanel(QWidget):
     def set_media(self, source: str | None) -> None:
         if self._source == source:
             return
-        self.cancel()
+        if self.session is None:
+            self.cancel()
         self._source = source
         self.output = None
         self.table.setRowCount(0)
         self.apply_button.setEnabled(False)
-
-    def refresh_models(self):
-        from ...model_service import ModelService
-        from ...model_catalog import default_model
-        self.model_folder.setText(str(ModelService().path(default_model("diarization"))))
 
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Community-1 local model directory")
@@ -81,20 +78,18 @@ class DiarizationPanel(QWidget):
             self.model_folder.setText(path)
 
     def start(self) -> None:
+        if self.session is not None:
+            self.startRequested.emit()
+            return
         if self._job_id is not None:
             return
         if not self._source or not Path(self._source).is_file():
             self.status.setText("Open a media file first.")
             return
-        from ...model_service import ModelService
-        from ...model_catalog import default_model
-        model = default_model("diarization")
-        service = ModelService()
-        errors = service.preflight(model)
-        if errors:
-            self.status.setText("; ".join(errors))
+        model_dir = Path(self.model_folder.text().strip())
+        if not model_dir.is_dir() or not (model_dir / "config.yaml").is_file():
+            self.status.setText("Choose a complete locally installed Community-1 folder.")
             return
-        model_dir = service.path(model)
         self._job_id = self._manager.submit(TaskRequest(
             kind="diarization",
             inputs={"target_path": self._source, "model_directory": str(model_dir)},
@@ -122,11 +117,13 @@ class DiarizationPanel(QWidget):
 
     def _show(self, result: dict) -> None:
         self.output = result
+        project = self.session.project if self.session is not None else None
+        names = {s.id: project.speaker(s.id).name for s in project.speakers} if project else {}
         self.table.setRowCount(len(result["turns"]))
         for row, item in enumerate(result["turns"]):
             values = (
                 f"{item['start']:.1f}s", f"{item['end']:.1f}s",
-                item["speaker_id"], "Overlap" if item["overlap"] else "Anonymous",
+                names.get(item["speaker_id"], item["speaker_id"]), "Overlap" if item["overlap"] else "Anonymous",
             )
             for column, value in enumerate(values):
                 self.table.setItem(row, column, QTableWidgetItem(value))
@@ -137,13 +134,16 @@ class DiarizationPanel(QWidget):
 
     def _apply(self) -> None:
         if self.output:
-            self.turnsReady.emit(self.output["turns"])
+            self.turnsReady.emit(self.output.get("exclusive_turns", self.output["turns"]))
 
     def _seek(self, row: int, _column: int) -> None:
         if self.output and row < len(self.output["turns"]):
             self.seekRequested.emit(float(self.output["turns"][row]["start"]))
 
     def cancel(self) -> None:
+        if self.session is not None:
+            self.session.cancel()
+            return
         if self._job_id:
             self._manager.cancel(self._job_id)
             self._finish()
@@ -158,6 +158,8 @@ class DiarizationPanel(QWidget):
         self.cancel_button.setEnabled(False)
 
     def closeEvent(self, event) -> None:
-        self.cancel()
-        self._manager.close()
+        if self.session is None:
+            self.cancel()
+        if self._manager is not None:
+            self._manager.close()
         super().closeEvent(event)

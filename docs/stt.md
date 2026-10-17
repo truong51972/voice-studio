@@ -1,9 +1,9 @@
 # Offline STT (issue #6)
 
-Install all application runtimes, then select a model in the Model Manager:
+Install the optional runtime and one selected model through the Model Manager:
 
 \`\`\`bash
-uv sync --locked
+uv sync --extra stt --dev
 uv run poe start
 \`\`\`
 

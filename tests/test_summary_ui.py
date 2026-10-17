@@ -8,7 +8,7 @@ def test_optional_summary_is_separate_from_the_shared_media_player():
     try:
         from PySide6.QtMultimedia import QMediaPlayer
         assert len(window.findChildren(QMediaPlayer)) == 1
-        assert window.actions["summarize"].text() == "Summarize reviewed transcript…"
+        assert window.inspector_tabs.tabText(6) == "Summary"
         assert window.summary_panel.result is None
         assert window.summary_panel.model.text() == ""
         window.stt_panel._show({

@@ -5,32 +5,31 @@ overlapping chunk offsets are guessed. Silence filtering is optional.
 """
 from __future__ import annotations
 
-import subprocess
 from dataclasses import asdict, dataclass
 from math import isfinite
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable
 
 import numpy as np
 
-from .media import ffmpeg_executable
-from .model_registry import get_model, model_path, preflight
+from .media import _read_chunk, stream_audio
+from .model_registry import get_model, installed, model_path, preflight
 from .model_catalog import default_model
 
-_DEFAULT_MODEL = default_model("stt")
-_DEFAULTS = _DEFAULT_MODEL.inference_defaults
+_STT_DEFAULT = default_model("stt")
+_STT_PARAMETERS = _STT_DEFAULT.inference_defaults
 
 SAMPLE_RATE = 16_000
 
 @dataclass(frozen=True, slots=True)
 class STTOptions:
-    model_id: str = _DEFAULT_MODEL.id
-    language: str = _DEFAULTS.language
-    vad: bool = _DEFAULTS.vad
-    word_timestamps: bool = _DEFAULTS.word_timestamps
-    chunk_seconds: int = _DEFAULTS.chunk_seconds
-    device: str = _DEFAULTS.device
-    compute_type: str = _DEFAULTS.compute_type
+    model_id: str = _STT_DEFAULT.id
+    language: str = _STT_PARAMETERS.language
+    vad: bool = _STT_PARAMETERS.vad
+    word_timestamps: bool = _STT_PARAMETERS.word_timestamps
+    chunk_seconds: int = _STT_PARAMETERS.chunk_seconds
+    device: str = _STT_PARAMETERS.device
+    compute_type: str = _STT_PARAMETERS.compute_type
 
     def __post_init__(self):
         if self.language not in ("auto", "vi", "en"):
@@ -39,56 +38,6 @@ class STTOptions:
             raise ValueError("Chunk duration must be 5–60 seconds")
         if self.device not in ("cpu", "cuda"):
             raise ValueError("Unsupported STT device")
-
-def _read_chunk(stream, samples_per_chunk: int) -> np.ndarray:
-    required = samples_per_chunk * 4
-    parts = []
-    remaining = required
-    while remaining:
-        fragment = stream.read(remaining)
-        if not fragment:
-            break
-        parts.append(fragment)
-        remaining -= len(fragment)
-    raw = b"".join(parts)
-    if len(raw) % 4:
-        raise ValueError("FFmpeg produced a partial float32 frame")
-    return np.frombuffer(raw, dtype="<f4").copy()
-
-def stream_audio(path: str | Path, *, chunk_seconds: int = _DEFAULTS.chunk_seconds) -> Iterator[tuple[float, np.ndarray]]:
-    path = Path(path)
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    command = [
-        str(ffmpeg_executable()), "-hide_banner", "-loglevel", "error",
-        "-i", str(path), "-map", "0:a:0", "-vn", "-ac", "1",
-        "-ar", str(SAMPLE_RATE), "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1",
-    ]
-    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    total_samples = 0
-    try:
-        assert process.stdout is not None
-        while True:
-            samples = _read_chunk(process.stdout, chunk_seconds * SAMPLE_RATE)
-            if samples.size == 0:
-                break
-            if not np.all(np.isfinite(samples)):
-                raise ValueError("Decoded audio has non-finite samples")
-            yield total_samples / SAMPLE_RATE, samples
-            total_samples += samples.size
-        code = process.wait(timeout=20)
-        if code:
-            raise ValueError("FFmpeg failed to decode the media audio track")
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
-        if process.stdout is not None:
-            process.stdout.close()
 
 def transcribe(
     media_path: str | Path,

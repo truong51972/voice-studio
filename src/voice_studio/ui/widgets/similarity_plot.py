@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QWidget
 
 from ...config import DEFAULT_THRESHOLD
 from ...pipeline import AnalysisBundle
+from ..theme import TRACK_COLORS
 
 class SimilarityPlotWidget(QWidget):
     def __init__(self, parent: QWidget | None = None):

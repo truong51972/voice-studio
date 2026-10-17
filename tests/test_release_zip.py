@@ -15,6 +15,9 @@ def test_release_zip_is_stable_and_has_checksum(tmp_path):
     sub = dist / "_internal"
     sub.mkdir()
     (sub / "library.dll").write_bytes(b"dll")
+    projects = dist / ".projects" / "private-project"
+    projects.mkdir(parents=True)
+    (projects / "project.json").write_text("private user data")
     output = tmp_path / "VoiceStudio-test-windows-x64.zip"
     pack(dist, output)
     first = sha256(output)
@@ -25,3 +28,4 @@ def test_release_zip_is_stable_and_has_checksum(tmp_path):
     with ZipFile(archive) as z:
         assert "voice-studio/voice-studio.exe" in z.namelist()
         assert "voice-studio/_internal/library.dll" in z.namelist()
+        assert not any(".projects" in name for name in z.namelist())

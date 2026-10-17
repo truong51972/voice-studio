@@ -20,6 +20,9 @@ class TranscriptEntry:
     speaker_id: str | None = None
     language: str | None = None
     words: tuple = ()
+    speaker_source: str | None = None
+    speaker_review_required: bool = False
+    speaker_analysis_id: str | None = None
 
     @classmethod
     def from_dict(cls, row: dict):
@@ -27,6 +30,9 @@ class TranscriptEntry:
             id=str(row["id"]), start=float(row["start"]), end=float(row["end"]),
             text=str(row["text"]), speaker_id=row.get("speaker_id"),
             language=row.get("language"), words=tuple(copy.deepcopy(row.get("words", []))),
+            speaker_source=row.get("speaker_source"),
+            speaker_review_required=bool(row.get("speaker_review_required", False)),
+            speaker_analysis_id=row.get("speaker_analysis_id"),
         )
 
     def as_dict(self) -> dict:
@@ -34,6 +40,9 @@ class TranscriptEntry:
             "id": self.id, "start": self.start, "end": self.end,
             "text": self.text, "speaker_id": self.speaker_id,
             "language": self.language, "words": copy.deepcopy(list(self.words)),
+            "speaker_source": self.speaker_source,
+            "speaker_review_required": self.speaker_review_required,
+            "speaker_analysis_id": self.speaker_analysis_id,
         }
 
 class TranscriptDocument:
@@ -53,13 +62,18 @@ class TranscriptDocument:
         raise KeyError(f"Transcript segment not found: {identifier}")
 
     def replace(self, identifier: str, *, text: str | None = None,
-                speaker_id: str | None = None, rename_speaker: bool = False) -> None:
+                speaker_id: str | None = None, rename_speaker: bool = False,
+                speaker_source: str | None = "human", speaker_review_required: bool = False,
+                speaker_analysis_id: str | None = None) -> None:
         i = self._index(identifier)
         old = self.edited[i]
         from dataclasses import replace as dc_replace
         self.edited[i] = dc_replace(
             old, text=old.text if text is None else text,
             speaker_id=(speaker_id if rename_speaker else old.speaker_id),
+            speaker_source=speaker_source if rename_speaker else old.speaker_source,
+            speaker_review_required=speaker_review_required if rename_speaker else old.speaker_review_required,
+            speaker_analysis_id=speaker_analysis_id if rename_speaker else old.speaker_analysis_id,
             # Original word timestamps are no longer valid after an edit.
             words=() if text is not None and text != old.text else old.words,
         )
@@ -94,6 +108,11 @@ class TranscriptDocument:
             text=" ".join(z for z in (x.text.strip(), y.text.strip()) if z),
             speaker_id=x.speaker_id if x.speaker_id == y.speaker_id else None,
             language=x.language if x.language == y.language else None,
+            speaker_source=("human" if "human" in (x.speaker_source, y.speaker_source)
+                            else x.speaker_source if x.speaker_source == y.speaker_source else None),
+            speaker_review_required=(x.speaker_review_required or y.speaker_review_required
+                                     or x.speaker_id != y.speaker_id),
+            speaker_analysis_id=x.speaker_analysis_id if x.speaker_analysis_id == y.speaker_analysis_id else None,
         )
         self.edited[a:b+1] = [merged]
         self._record("merge", [first_id, second_id, merged_id])
@@ -118,6 +137,45 @@ class TranscriptDocument:
             "revision": self.revision, "history": copy.deepcopy(self.history),
         }
 
+    def apply_diarization(self, turns: list[dict], *, analysis_id: str | None = None) -> None:
+        from .diarization import attribute_segments
+        proposed = attribute_segments([entry.as_dict() for entry in self.edited], turns, analysis_id=analysis_id)
+        for old, row in zip(list(self.edited), proposed):
+            new = TranscriptEntry.from_dict(row)
+            if old != new:
+                self.replace(old.id, speaker_id=new.speaker_id, rename_speaker=True,
+                             speaker_source=new.speaker_source, speaker_analysis_id=new.speaker_analysis_id,
+                             speaker_review_required=new.speaker_review_required)
+
+    def selected_export(self, start: float, end: float) -> dict:
+        """A reviewed selection, never a full raw/review archive.
+
+        Segment text cannot be timed within a boundary segment without word
+        timings. Omit that text rather than disclose speech outside the range.
+        """
+        if end <= start:
+            raise ValueError("Choose a valid source selection before exporting")
+        entries = []
+        for entry in self.edited:
+            if entry.end <= start or entry.start >= end:
+                continue
+            row = entry.as_dict()
+            row.update(start=max(start, entry.start), end=min(end, entry.end))
+            words = [dict(start=w['start'], end=w['end'], text=w['text']) for w in entry.words
+                     if row['start'] <= w['start'] < w['end'] <= row['end']]
+            row['words'] = words
+            if entry.start < start or entry.end > end:
+                row['text'] = ''.join(w['text'] for w in words).strip()
+                row['text_requires_review'] = True
+            entries.append(row)
+        # Inference metadata can contain whole-source text/word arrays as well.
+        metadata = {key: copy.deepcopy(self.raw_metadata[key]) for key in
+                    ('source', 'current_source', 'media_id', 'content_fingerprint', 'model_id')
+                    if key in self.raw_metadata}
+        return {**metadata, 'scope': 'source_selection', 'timebase': 'source seconds',
+                'source_in': start, 'source_out': end, 'review_revision': self.revision,
+                'selected_segments': entries}
+
     @classmethod
     def restore(cls, payload: dict) -> "TranscriptDocument":
         if payload.get("schema") != 1:
@@ -135,12 +193,15 @@ def _timestamp(seconds: float) -> str:
     sec, ms = divmod(rem, 1000)
     return f"{hours:02}:{minutes:02}:{sec:02},{ms:03}"
 
-def export_text(document: TranscriptDocument, kind: str) -> str:
-    entries = sorted(document.edited, key=lambda s: (s.start, s.end))
+def export_text(document: TranscriptDocument, kind: str, *, source_range: tuple[float, float] | None = None) -> str:
+    selection = document.selected_export(*source_range) if source_range is not None else None
+    entries = sorted((TranscriptEntry.from_dict(row) for row in selection['selected_segments'])
+                     if selection is not None else document.edited, key=lambda s: (s.start, s.end))
     if kind == "json":
-        return json.dumps(document.serialize(), ensure_ascii=False, indent=2)
+        return json.dumps(selection if selection is not None else document.serialize(), ensure_ascii=False, indent=2)
     if kind == "txt":
-        return "\n".join(
+        source = document.raw_metadata.get('current_source', document.raw_metadata.get('source', 'unknown'))
+        return f'Source: {Path(source).name} (source-relative timestamps)\n' + "\n".join(
             (f"[{_timestamp(s.start).replace(',', '.')}]" +
              (f" [{s.speaker_id}]" if s.speaker_id else "") + f" {s.text.strip()}")
             for s in entries if s.text.strip()
@@ -149,7 +210,7 @@ def export_text(document: TranscriptDocument, kind: str) -> str:
         meta = document.raw_metadata
         lines = [
             "# Transcript", "",
-            f"Source: `{Path(meta.get('source', 'unknown')).name}`",
+            f"Source: `{Path(meta.get('current_source', meta.get('source', 'unknown'))).name}`",
             f"Model: `{meta.get('model_id', 'unknown')}`",
             f"Edited revision: {document.revision}", "",
         ]

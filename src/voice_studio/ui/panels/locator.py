@@ -4,60 +4,17 @@ from __future__ import annotations
 
 from PySide6.QtCore import Slot
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QGroupBox,
-                               QHeaderView, QLabel, QPushButton, QTableWidget,
+                               QHeaderView, QLabel, QTableWidget,
                                QVBoxLayout, QWidget)
 
 from ...config import DEFAULT_THRESHOLD
 from ...profiles import DEFAULT_PROFILE_KEY, get_inference_profile
-from ..constants import (DEFAULT_REFERENCE_SPEAKERS, MAX_REFERENCE_SPEAKERS,
-                         PROFILE_CHOICES, SCENARIOS, SEGMENT_HEADERS)
+from ..constants import PROFILE_CHOICES, SCENARIOS, SEGMENT_HEADERS
 from ..widgets.similarity_plot import SimilarityPlotWidget
-from .reference import ReferenceInput
 
 
 class LocatorPanelsMixin:
     """Build Locator panels while the main window owns all media/playback state."""
-
-    def _build_speakers_panel(self) -> QWidget:
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(8, 8, 8, 8)
-        info = QLabel(f"Reference audio · 3–5 giây rõ tiếng · tối đa {MAX_REFERENCE_SPEAKERS} speakers")
-        info.setStyleSheet("color: #9da4ae;")
-        layout.addWidget(info)
-
-        self.reference_inputs: list[ReferenceInput] = []
-        self.reference_list_layout = QVBoxLayout()
-        self.reference_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.reference_list_layout.setSpacing(6)
-        layout.addLayout(self.reference_list_layout)
-
-        self.add_speaker_button = QPushButton("+ Add speaker")
-        self.add_speaker_button.clicked.connect(self._add_reference_input)
-        layout.addWidget(self.add_speaker_button)
-        layout.addStretch(1)
-
-        for _ in range(DEFAULT_REFERENCE_SPEAKERS):
-            self._add_reference_input()
-        return page
-
-    @Slot()
-    def _add_reference_input(self) -> None:
-        if len(self.reference_inputs) >= MAX_REFERENCE_SPEAKERS:
-            return
-
-        index = len(self.reference_inputs) + 1
-        reference = ReferenceInput(index)
-        self.reference_inputs.append(reference)
-        self.reference_list_layout.addWidget(reference)
-
-        reached_limit = len(self.reference_inputs) >= MAX_REFERENCE_SPEAKERS
-        self.add_speaker_button.setEnabled(not reached_limit)
-        self.add_speaker_button.setText(
-            f"Maximum {MAX_REFERENCE_SPEAKERS} speakers"
-            if reached_limit
-            else "+ Add speaker"
-        )
 
     def _build_analysis_panel(self) -> QWidget:
         page = QWidget()
@@ -72,19 +29,16 @@ class LocatorPanelsMixin:
         self.profile = QComboBox()
         for label, key in PROFILE_CHOICES:
             self.profile.addItem(label, key)
-        from ...model_service import ModelService
-        from ...model_catalog import get_model
-        preferred = get_model(ModelService().default_id("locator")).profile_key
-        self.profile.setCurrentIndex(max(0, self.profile.findData(preferred)))
+        self.profile.setCurrentIndex(max(0, self.profile.findData(DEFAULT_PROFILE_KEY)))
         self.profile.currentIndexChanged.connect(self._apply_profile_default)
 
         self.threshold = QDoubleSpinBox()
         self.threshold.setRange(0.20, 0.90)
         self.threshold.setDecimals(2)
         self.threshold.setSingleStep(0.01)
-        self.threshold.setValue(get_inference_profile(preferred).default_threshold)
+        self.threshold.setValue(DEFAULT_THRESHOLD)
 
-        self.profile_help = QLabel(get_inference_profile(preferred).description)
+        self.profile_help = QLabel(get_inference_profile(DEFAULT_PROFILE_KEY).description)
         self.profile_help.setWordWrap(True)
         self.profile_help.setStyleSheet("color: #9aa1ab;")
 

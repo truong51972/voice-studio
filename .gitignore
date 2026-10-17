@@ -9,6 +9,7 @@ models/*.onnx
 !models/README.md
 
 .tools/
+.projects/
 release/
 
 .venv/
@@ -22,7 +23,5 @@ dist/
 *.spec
 models/*.onnx
 models/*.part
-
 .models/
 .settings/
-.projects/

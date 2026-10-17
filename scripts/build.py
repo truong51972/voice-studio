@@ -72,6 +72,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.parse_args()
     _verify_assets()
+    # --noconfirm may erase an existing onedir tree. Never delete portable user data.
+    distribution = ROOT / "dist" / APP_NAME
+    for name in (".projects", ".models", ".settings"):
+        protected = distribution / name
+        if protected.exists() or protected.is_symlink():
+            raise SystemExit(
+                f"Refusing to rebuild over portable user data: {protected}. "
+                "Back up or move the entire directory before rebuilding."
+            )
 
     if not APP_ENTRYPOINT.is_file():
         raise SystemExit(f"Thiếu package entrypoint: {APP_ENTRYPOINT}")

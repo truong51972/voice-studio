@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
+from math import isfinite
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 
@@ -63,49 +65,91 @@ def extract_audio_from_video(value: Any, sample_rate: int = SAMPLE_RATE) -> np.n
             "Định dạng video chưa được hỗ trợ. Hãy dùng MP4, MOV, MKV, WEBM, AVI hoặc M4V."
         )
 
-    cmd = [
-        str(ffmpeg_executable()),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        str(path),
-        "-map",
-        "0:a:0?",
-        "-vn",
-        "-ac",
-        "1",
-        "-ar",
-        str(int(sample_rate)),
-        "-acodec",
-        "pcm_f32le",
-        "-f",
-        "f32le",
-        "pipe:1",
-    ]
-    try:
-        proc = subprocess.run(
-            cmd,
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=900,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ValueError("Video quá dài hoặc giải mã audio bị timeout.") from exc
+    return decode_audio(path, sample_rate=sample_rate)
 
-    if proc.returncode != 0:
-        detail = proc.stderr.decode("utf-8", errors="replace").strip()
-        if len(detail) > 500:
-            detail = detail[-500:]
-        raise ValueError(
-            "Không thể tách audio từ video. Video có thể không có audio stream hoặc file bị lỗi."
-            + (f" Chi tiết: {detail}" if detail else "")
-        )
 
-    samples = np.frombuffer(proc.stdout, dtype="<f4").astype(np.float32, copy=True)
-    if samples.size == 0:
-        raise ValueError("Video không có audio stream có thể phân tích.")
-    if not np.all(np.isfinite(samples)):
-        raise ValueError("Audio giải mã từ video chứa dữ liệu không hợp lệ.")
-    return np.ascontiguousarray(samples, dtype=np.float32)
+def _read_chunk(stream, samples_per_chunk: int) -> np.ndarray:
+    remaining = samples_per_chunk * 4
+    parts = []
+    while remaining:
+        fragment = stream.read(remaining)
+        if not fragment:
+            break
+        parts.append(fragment)
+        remaining -= len(fragment)
+    raw = b"".join(parts)
+    if len(raw) % 4:
+        raise ValueError("FFmpeg produced a partial float32 frame")
+    return np.frombuffer(raw, dtype="<f4").copy()
+
+
+def stream_audio(
+    path: str | Path, *, chunk_seconds: int = 30, sample_rate: int = SAMPLE_RATE,
+    start: float = 0., end: float | None = None,
+) -> Iterator[tuple[float, np.ndarray]]:
+    """Decode bounded mono chunks; offsets stay relative to the original source.
+
+    Input seeking plus an output duration bounds reference decoding without
+    loading the recording before the selection. Closing the iterator kills FFmpeg.
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    if not isinstance(chunk_seconds, int) or not 1 <= chunk_seconds <= 60:
+        raise ValueError("Chunk duration must be 1–60 whole seconds")
+    if not isinstance(sample_rate, int) or sample_rate <= 0:
+        raise ValueError("Sample rate must be a positive integer")
+    if not isfinite(start) or start < 0 or (end is not None and (not isfinite(end) or end <= start)):
+        raise ValueError("Expected finite source interval 0 <= start < end")
+    command = [str(ffmpeg_executable()), "-nostdin", "-hide_banner", "-loglevel", "error"]
+    if start:
+        command += ["-ss", str(start)]
+    command += ["-i", str(path)]
+    if end is not None:
+        command += ["-t", str(end - start)]
+    command += ["-map", "0:a:0", "-vn", "-ac", "1", "-ar", str(sample_rate),
+                "-f", "f32le", "-acodec", "pcm_f32le", "pipe:1"]
+    # A file avoids stderr pipe deadlocks on corrupt media; only the tail is read.
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=errors)
+        total_samples = 0
+        try:
+            assert process.stdout is not None
+            while True:
+                samples = _read_chunk(process.stdout, chunk_seconds * sample_rate)
+                if not samples.size:
+                    break
+                if not np.all(np.isfinite(samples)):
+                    raise ValueError("Decoded audio has non-finite samples")
+                yield start + total_samples / sample_rate, samples
+                total_samples += samples.size
+            code = process.wait(timeout=20)
+            if code or not total_samples:
+                errors.seek(0, 2)
+                errors.seek(max(0, errors.tell() - 500))
+                detail = errors.read().decode(errors="replace").strip()
+                raise ValueError("FFmpeg could not decode an audio stream. Check the codec, "
+                                 "source file and selected interval." + (f" Details: {detail}" if detail else ""))
+        finally:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            if process.stdout is not None:
+                process.stdout.close()
+
+
+def decode_audio(
+    path: str | Path, *, sample_rate: int = SAMPLE_RATE,
+    start: float = 0., end: float | None = None,
+) -> np.ndarray:
+    """Collect a chosen region for existing array-based Locator callers.
+
+    Long-running consumers should use stream_audio instead of collecting chunks.
+    """
+    return np.concatenate([samples for _, samples in stream_audio(
+        path, sample_rate=sample_rate, start=start, end=end,
+    )])
