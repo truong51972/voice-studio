@@ -72,30 +72,31 @@ def test_original_overlap_and_exclusive_tracks_share_cluster_mapping():
     assert proposal[0]["speaker_id"] == "Speaker 2"
 
 
-def test_optional_runtime_is_offline_and_disables_usage_telemetry_before_import(tmp_path, monkeypatch):
-    import builtins
+def test_community_loader_is_offline_and_disables_telemetry_before_loading(tmp_path, monkeypatch):
     import os
     import pytest
     from voice_studio.diarization import diarize
-    source = tmp_path / 'media.wav'
-    source.write_bytes(b'fixture')
-    model = tmp_path / 'model'
+    from voice_studio import model_backends
+
+    source = tmp_path / "media.wav"
+    source.write_bytes(b"fixture")
+    model = tmp_path / "model"
     model.mkdir()
-    (model / 'config.yaml').write_text('fixture')
-    monkeypatch.setenv('PYANNOTE_METRICS_ENABLED', '1')
-    monkeypatch.setenv('HF_HUB_OFFLINE', '0')
-    monkeypatch.setenv('HF_HUB_DISABLE_TELEMETRY', '0')
-    original = builtins.__import__
-    attempted = []
-    def check_import(name, *args, **kwargs):
-        if name == 'pyannote.audio':
-            attempted.append(name)
-            assert os.environ['PYANNOTE_METRICS_ENABLED'] == '0'
-            assert os.environ['HF_HUB_DISABLE_TELEMETRY'] == '1'
-            assert os.environ['HF_HUB_OFFLINE'] == '1'
-            raise ImportError('model-free fixture')
-        return original(name, *args, **kwargs)
-    monkeypatch.setattr(builtins, '__import__', check_import)
-    with pytest.raises(RuntimeError, match='uv sync --extra diarization'):
+    (model / "config.yaml").write_text("fixture")
+    monkeypatch.setenv("PYANNOTE_METRICS_ENABLED", "1")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    monkeypatch.setenv("HF_HUB_DISABLE_TELEMETRY", "0")
+    seen = []
+
+    def offline_loader(folder):
+        assert folder == model
+        assert os.environ["PYANNOTE_METRICS_ENABLED"] == "0"
+        assert os.environ["HF_HUB_DISABLE_TELEMETRY"] == "1"
+        assert os.environ["HF_HUB_OFFLINE"] == "1"
+        seen.append(folder)
+        raise ImportError("Native runtime unavailable")
+
+    monkeypatch.setattr(model_backends, "load_community", offline_loader)
+    with pytest.raises(RuntimeError, match="Native runtime unavailable"):
         diarize(source, model)
-    assert attempted == ['pyannote.audio']
+    assert seen == [model]

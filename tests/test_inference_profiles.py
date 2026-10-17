@@ -21,7 +21,10 @@ def test_profiles_expose_fast_and_accurate_modes():
     assert "campplus" in fast.model_filename
     assert "eres2netv2" in accurate.model_filename
     assert accurate.model_size > fast.model_size
-    assert accurate.model_path == Path(fast.model_path.parent) / accurate.model_filename
+    assert accurate.model_path.name == accurate.model_filename
+    assert fast.model_path.name == fast.model_filename
+    assert accurate.model_path.parent != fast.model_path.parent
+    assert accurate.model_path.parent.parent == fast.model_path.parent.parent
 
 
 def test_profile_lookup_rejects_unknown_key():
