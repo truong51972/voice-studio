@@ -25,8 +25,11 @@ analysis can resolve that warning. Reapplying the same analysis preserves review
 warnings from a cluster split. Explicit human assignments/clears, legacy labels
 without provenance and text corrections are preserved; raw hypotheses are unchanged.
 Confirmed aliases resolve historical IDs.
-`Export selected source range only` clips export timestamps to the bottom timeline
-selection. **All selected export formats exclude untimed boundary speech.** Only
+In the **STT** inspector, choose a scope next to **Export transcript…**:
+**Current source** (default), **Selected source range**, or **Whole project · clip order**.
+The File → Export transcript menu and transcript context menu use that same action.
+After saving, **Open output folder** opens the destination. Source-range export clips
+export timestamps to the bottom timeline selection. **All selected export formats exclude untimed boundary speech.** Only
 fully contained timestamped words are included from partial segments. If word
 timings are unavailable (including after a text edit), boundary text is omitted;
 full segments inside the range retain reviewed text. TXT/Markdown include source
@@ -37,10 +40,25 @@ history and whole-source inference metadata. Partial JSON entries are marked
 subtitle cue. The export status and Help describe this policy. Full-source exports
 retain complete reviewed text; full-source JSON retains raw and edited views.
 
-**Export all** follows ordered project clips and trims. Markdown/TXT use explicit
+**Whole project** export follows ordered project clips and trims. Markdown/TXT use explicit
 file/range boundaries and source-relative timestamps. SRT uses project-relative
 cue times and source filenames. JSON includes each clip's media ID, source range,
 project start and selected reviewed entries, using the same selection policy.
 Segment/word times are source seconds; `timeline_start` is project seconds.
 Source model timestamps
 and stored reviews are not shifted or overwritten by an export.
+
+## Synchronized subtitle review
+
+The existing media preview displays the active **edited** transcript segment as a
+compact one- or two-line soft subtitle. It uses the same **source seconds** as
+playback, transcript row seeks and speaker/locator overlays, while project clips
+still respect their own trim and project timeline mapping. It automatically
+updates after edits, split/merge/revert, diarization labels, speaker renaming,
+source changes and project reopen. Overlapping segments resolve predictably,
+with later-starting segments taking precedence and end times exclusive. Empty
+segments and playheads without transcript coverage have no subtitle.
+
+Use **View → Show subtitles** to toggle the overlay (enabled by default).
+This preference is stored in the project. SRT files remain separate exports;
+subtitles are not embedded into the video.
