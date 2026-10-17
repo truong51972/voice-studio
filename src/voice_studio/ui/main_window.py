@@ -2,6 +2,7 @@ from __future__ import annotations
 
 """Single media player and main Qt window; module-independent task panels."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -428,6 +429,9 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:
+    if sys.platform == "linux":
+        # Avoid Qt's PipeWire crash when client.conf is missing (e.g. WSLg).
+        os.environ.setdefault("QT_AUDIO_BACKEND", "pulseaudio")
     existing = QApplication.instance()
     if existing is not None:
         return existing

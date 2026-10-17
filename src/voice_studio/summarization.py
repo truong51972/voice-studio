@@ -108,8 +108,8 @@ def summarize(
 def summary_markdown(summary: dict) -> str:
     lines = [
         "# Meeting summary — AI draft (review required)", "",
-        f"Source: \`{Path(summary.get('source') or 'unknown').name}\`",
-        f"Local model: \`{summary.get('model', 'unknown')}\`",
+        f"Source: `{Path(summary.get('source') or 'unknown').name}`",
+        f"Local model: `{summary.get('model', 'unknown')}`",
         f"Transcript revision: {summary.get('transcript_revision', '?')}",
         "",
         "> AI-generated interpretations are not verbatim speech. Verify each item "

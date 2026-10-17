@@ -149,8 +149,8 @@ def export_text(document: TranscriptDocument, kind: str) -> str:
         meta = document.raw_metadata
         lines = [
             "# Transcript", "",
-            f"Source: \`{Path(meta.get('source', 'unknown')).name}\`",
-            f"Model: \`{meta.get('model_id', 'unknown')}\`",
+            f"Source: `{Path(meta.get('source', 'unknown')).name}`",
+            f"Model: `{meta.get('model_id', 'unknown')}`",
             f"Edited revision: {document.revision}", "",
         ]
         for s in entries:

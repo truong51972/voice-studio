@@ -23,7 +23,8 @@ def test_ai_summary_requires_actual_source_segments_and_does_not_rewrite_raw():
     assert len(result["items"]) == 1
     assert result["items"][0]["source_time_ranges"] == [[1, 3]]
     assert "AI draft" in summary_markdown(result)
-    assert "meeting.m4a" in summary_markdown(result)
+    assert "Source: `meeting.m4a`" in summary_markdown(result)
+    assert "Local model: `local-model`" in summary_markdown(result)
     assert document.raw[0].text == "We should release the report."
 
 def test_no_network_without_explicit_requester_call():

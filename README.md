@@ -34,6 +34,11 @@ uv run poe check       # compile all Python files
 
 Alternative entrypoints: `uv run poe desktop`, `uv run voice-studio`, `uv run python -m voice_studio`.
 
+On Linux, the app defaults to the PulseAudio audio backend (also supported by
+PipeWire's PulseAudio compatibility server). This avoids a Qt native crash on
+systems such as WSLg where PipeWire's `client.conf` is missing. An explicit
+`QT_AUDIO_BACKEND` environment variable takes precedence.
+
 The speaker ONNX models (approximately 96 MiB total) download only on request, are checked against their SHA-256 and never committed to Git.
 
 Model management: [docs/model_manager.md](docs/model_manager.md). Open **Models** to install and verify assets. To run local transcription, install optional dependencies with `uv sync --dev --extra stt`, then install an STT model using the Model Manager. Model downloads happen only when explicitly requested.

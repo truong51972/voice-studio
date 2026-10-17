@@ -42,7 +42,8 @@ def test_search_export_with_source_and_timestamps(document):
     assert "00:00:01,000 --> 00:00:03,000" in srt
     assert "2\n00:00:03,000 --> 00:00:05,000" in srt
     md = export_text(document, "md")
-    assert "meeting.m4a" in md and "Edited revision: 1" in md
+    assert "Source: `meeting.m4a`" in md and "Edited revision: 1" in md
+    assert "Model: `whisper-small`" in md
     structured = json.loads(export_text(document, "json"))
     assert structured["raw"]["segments"][0]["text"] == "Chao ban"
     assert structured["edited"][0]["text"] == "Chào bạn"

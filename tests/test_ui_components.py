@@ -1,5 +1,8 @@
 import os
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -10,6 +13,26 @@ from PySide6.QtWidgets import QScrollArea
 from voice_studio.ui import build_app, create_application
 from voice_studio.ui.resources import _resource_path
 from voice_studio.ui.timecode import milliseconds_to_seconds, seconds_to_milliseconds
+
+
+@pytest.mark.parametrize("platform, configured, expected", [
+    ("linux", None, "pulseaudio"),
+    ("linux", "pipewire", "pipewire"),
+    ("win32", None, None),
+    ("darwin", None, None),
+])
+def test_application_audio_backend(monkeypatch, platform, configured, expected):
+    from voice_studio.ui import main_window
+
+    monkeypatch.delenv("QT_AUDIO_BACKEND", raising=False)
+    if configured is not None:
+        monkeypatch.setenv("QT_AUDIO_BACKEND", configured)
+    monkeypatch.setattr(main_window, "sys", SimpleNamespace(platform=platform))
+    existing = object()
+    monkeypatch.setattr(main_window, "QApplication", SimpleNamespace(instance=lambda: existing))
+
+    assert create_application([]) is existing
+    assert os.environ.get("QT_AUDIO_BACKEND") == expected
 
 
 def test_refactored_resources_and_player_clock():
