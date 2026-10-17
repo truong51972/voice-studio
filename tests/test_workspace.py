@@ -49,3 +49,19 @@ def test_read_only_project_root_is_also_reported(tmp_path, monkeypatch):
     with pytest.raises(OSError, match="portable app folder must be writable"):
         workspace.projects_directory()
     assert list((tmp_path / ".projects").iterdir()) == []
+
+
+def test_actual_read_only_portable_root_is_rejected(tmp_path, monkeypatch):
+    import os
+    if os.name == 'nt' or os.geteuid() == 0:
+        pytest.skip('POSIX write permissions require an unprivileged test user')
+    root = tmp_path / 'read-only-app'
+    root.mkdir()
+    monkeypatch.setattr(workspace, 'application_directory', lambda: root)
+    root.chmod(0o555)
+    try:
+        with pytest.raises(OSError, match='portable app folder must be writable'):
+            ProjectStore.create_portable()
+        assert not (root / '.projects').exists()
+    finally:
+        root.chmod(0o755)

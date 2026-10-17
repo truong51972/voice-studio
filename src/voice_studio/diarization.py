@@ -43,8 +43,11 @@ def _speaker_turns(output, *, exclusive: bool = False, label_map: dict | None = 
     return turns
 
 
-def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> dict:
+def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None, work_directory: Path | None = None) -> dict:
     """Run a user-installed Community-1 from disk (no auto-download/token)."""
+    # Disable usage telemetry before importing the optional local runtime.
+    os.environ['PYANNOTE_METRICS_ENABLED'] = '0'
+    os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
     media = Path(path)
     if not media.is_file():
         raise FileNotFoundError(media)
@@ -57,9 +60,15 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> 
             from pyannote.audio import Pipeline
         except ImportError as exc:
             raise RuntimeError("Install optional pyannote audio runtime: uv sync --extra diarization") from exc
-        pipeline = Pipeline.from_pretrained(str(model_dir))
+        try:
+            pipeline = Pipeline.from_pretrained(str(model_dir))
+        except Exception as exc:
+            raise RuntimeError("Cannot load the local Community-1 model. Install a complete compatible "
+                               "model with its local dependencies; no token/download is performed. " + str(exc)) from exc
     # Local temporary normalized waveform: no large PCM arrays over IPC.
-    with tempfile.TemporaryDirectory(prefix="voice-studio-diar-") as work:
+    if work_directory is not None:
+        work_directory.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="voice-studio-diar-", dir=work_directory) as work:
         wav = Path(work) / "audio.wav"
         command = [
             str(ffmpeg_executable()), "-y", "-hide_banner", "-loglevel", "error",
@@ -69,7 +78,12 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> 
         process = subprocess.run(command, capture_output=True, timeout=10800)
         if process.returncode:
             raise RuntimeError("Could not decode audio for diarization: " + process.stderr.decode(errors="replace")[-400:])
-        output = pipeline(str(wav))
+        try:
+            output = pipeline(str(wav))
+        except Exception as exc:
+            raise RuntimeError('Local diarization failed. Verify Community-1 assets, pyannote.audio 4 and its Torch/audio codec runtime. ' + str(exc)) from exc
+    if not hasattr(output, "speaker_diarization"):
+        raise RuntimeError("Incompatible diarization output. Install pyannote.audio 4 and Community-1 locally")
     labels = {}
     turns = _speaker_turns(output, label_map=labels)
     exclusive_turns = _speaker_turns(output, exclusive=True, label_map=labels)

@@ -84,6 +84,7 @@ def _verify_assets() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--with-stt", action="store_true", help="Bundle optional offline faster-whisper runtime")
+    parser.add_argument("--with-diarization", action="store_true", help="Bundle optional local pyannote/Torch runtime (no Community-1 model)")
     args = parser.parse_args()
     _protect_portable_projects(ROOT / "dist" / APP_NAME)
     _verify_models()
@@ -127,6 +128,21 @@ def main() -> None:
         for name in required:
             cmd += ["--collect-all", name]
         print("[build] Including offline STT runtime; no speech models are shipped.")
+
+    if args.with_diarization:
+        required = ('pyannote.audio', 'torch', 'torchaudio', 'huggingface_hub')
+        missing = []
+        for name in required:
+            try:
+                if importlib.util.find_spec(name) is None:
+                    missing.append(name)
+            except ModuleNotFoundError:
+                missing.append(name)
+        if missing:
+            raise SystemExit('Install optional diarization runtime before building: uv sync --dev --extra diarization; ' + ', '.join(missing))
+        for name in required:
+            cmd += ['--collect-all', name]
+        print('[build] Including optional Community-1 runtime; install the local model separately. Native QA is required.')
 
     bundled_ort_source: Path | None = None
     if os.name == "nt":

@@ -140,7 +140,8 @@ def export_text(document: TranscriptDocument, kind: str) -> str:
     if kind == "json":
         return json.dumps(document.serialize(), ensure_ascii=False, indent=2)
     if kind == "txt":
-        return "\n".join(
+        source = document.raw_metadata.get('current_source', document.raw_metadata.get('source', 'unknown'))
+        return f'Source: {Path(source).name} (source-relative timestamps)\n' + "\n".join(
             (f"[{_timestamp(s.start).replace(',', '.')}]" +
              (f" [{s.speaker_id}]" if s.speaker_id else "") + f" {s.text.strip()}")
             for s in entries if s.text.strip()
@@ -149,7 +150,7 @@ def export_text(document: TranscriptDocument, kind: str) -> str:
         meta = document.raw_metadata
         lines = [
             "# Transcript", "",
-            f"Source: `{Path(meta.get('source', 'unknown')).name}`",
+            f"Source: `{Path(meta.get('current_source', meta.get('source', 'unknown'))).name}`",
             f"Model: `{meta.get('model_id', 'unknown')}`",
             f"Edited revision: {document.revision}", "",
         ]

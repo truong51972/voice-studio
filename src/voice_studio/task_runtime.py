@@ -9,6 +9,8 @@ import json
 import multiprocessing as mp
 import os
 import shutil
+import signal
+import subprocess
 import tempfile
 import time
 import traceback
@@ -21,13 +23,13 @@ TaskState = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 @dataclass(frozen=True)
 class TaskRequest:
-    kind: Literal["locator", "diagnostic", "stt", "diarization", "summary"]
+    kind: Literal["locator", "diagnostic", "stt", "diarization", "summary", "editor"]
     inputs: dict
     device: Literal["cpu", "gpu"] = "cpu"
     def __post_init__(self):
         if self.device not in ("cpu", "gpu"):
             raise ValueError("Unknown task device")
-        if self.kind not in ("locator", "diagnostic", "stt", "diarization", "summary"):
+        if self.kind not in ("locator", "diagnostic", "stt", "diarization", "summary", "editor"):
             raise ValueError("Unknown task kind")
         # Never marshal sample arrays, model instances, Qt widgets or arbitrary callables.
         def plain(x):
@@ -51,8 +53,15 @@ def _child_entry(request: TaskRequest, artifact: str) -> None:
     """Top-level spawn-safe child entry. Only this process loads inference backends."""
     folder = Path(artifact)
     try:
+        if os.name != "nt":
+            os.setsid()
         (folder / "status.json").write_text(json.dumps({"stage": "Loading model"}))
-        if request.kind == "diagnostic":
+        if request.kind == "editor":
+            from .editor_tasks import run_editor_task
+            def progress(stage: str):
+                (folder / "status.json").write_text(json.dumps({"stage": stage}), encoding="utf-8")
+            payload = run_editor_task(request.inputs, progress)
+        elif request.kind == "diagnostic":
             delay = float(request.inputs.get("seconds", 0.0))
             time.sleep(min(max(delay, 0), 10))
             payload = {"kind": "diagnostic", "value": str(request.inputs.get("value", ""))}
@@ -234,7 +243,14 @@ class TaskManager:
         proc = task.process
         if proc is not None:
             if proc.is_alive():
-                proc.terminate()
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                                   capture_output=True, timeout=10, check=False)
+                else:
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                    except ProcessLookupError:
+                        proc.terminate()
             proc.join(timeout=3)
             if proc.is_alive():
                 proc.kill()
