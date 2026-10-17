@@ -44,7 +44,25 @@ def load_community(directory: Path):
     return pipeline
 
 
-def probe(model_id: str, path: Path) -> None:
+_cuda_dll_handles = []
+
+
+def prepare_cuda_runtime() -> None:
+    """Load PyTorch's bundled CUDA libraries before CTranslate2 initializes.
+
+    Windows needs DLL search directories kept alive for the whole process.
+    This is not a CUDA readiness guarantee: the native model probe decides.
+    """
+    import torch
+    if os.name == "nt":
+        library_dir = Path(torch.__file__).resolve().parent / "lib"
+        if library_dir.is_dir():
+            os.environ["PATH"] = str(library_dir) + os.pathsep + os.environ.get("PATH", "")
+            if hasattr(os, "add_dll_directory"):
+                _cuda_dll_handles.append(os.add_dll_directory(str(library_dir)))
+
+
+def probe(model_id: str, path: Path, device: str = "cpu", compute_type: str | None = None) -> None:
     import numpy as np
     model = get_model(model_id)
     audio = np.random.default_rng(0).normal(0, .02, 32000).astype(np.float32)
@@ -55,19 +73,25 @@ def probe(model_id: str, path: Path) -> None:
             raise RuntimeError("Speaker model returned non-finite embeddings.")
     elif model.engine == "faster-whisper":
         from faster_whisper import WhisperModel
-        engine = WhisperModel(str(path), device="cpu", compute_type=model.inference_defaults.compute_type,
+        if device == "cuda":
+            prepare_cuda_runtime()
+        engine = WhisperModel(str(path), device=device, compute_type=compute_type or model.inference_defaults.compute_type,
                               local_files_only=True, cpu_threads=1)
         segments, _info = engine.transcribe(audio, language="en", beam_size=1, vad_filter=False)
         list(segments)
     else:
+        if device != "cpu":
+            raise ValueError("CUDA readiness is implemented for STT only.")
         import torch
         load_community(path)({"waveform": torch.from_numpy(audio).unsqueeze(0), "sample_rate": 16000})
 
 
 def main() -> None:
     import sys
-    probe(sys.argv[1], Path(sys.argv[2]))
-    print("CPU model-load and inference smoke passed.")
+    device = sys.argv[3] if len(sys.argv) > 3 else "cpu"
+    precision = sys.argv[4] if len(sys.argv) > 4 else None
+    probe(sys.argv[1], Path(sys.argv[2]), device=device, compute_type=precision)
+    print(f"{device.upper()} model-load and inference smoke passed.")
 
 
 if __name__ == "__main__":
