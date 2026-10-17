@@ -10,6 +10,7 @@ from .panels.diarization import DiarizationPanel
 from .panels.speakers import SpeakersPanel
 from .panels.summary import SummaryPanel
 from .widgets.media_player import PreviewVideoWidget
+from .widgets.stt_progress import STTProgressStrip
 from .widgets.timeline import EditorTimelineWidget
 
 
@@ -75,6 +76,8 @@ class EditorLayoutMixin:
         self.preview_status = QLabel('Import sources to begin')
         self.preview_status.setWordWrap(True)
         preview_layout.addWidget(self.preview_status)
+        self.stt_progress = STTProgressStrip()
+        preview_layout.addWidget(self.stt_progress)
         self.video_widget = PreviewVideoWidget()
         self._player.setVideoOutput(self.video_widget)
         preview_layout.addWidget(self.video_widget, 1)
@@ -200,6 +203,8 @@ class EditorLayoutMixin:
         self.speakers_panel.mode.setCurrentIndex(settings.get('speaker_mode', 0))
         self.stt_panel.vad.setChecked(settings.get('vad', True))
         self.stt_panel.words.setChecked(settings.get('word_timestamps', False))
+        self.actions['subtitles'].setChecked(settings.get('show_subtitles', True))
+        self.video_widget.overlay.set_show_subtitles(self.actions['subtitles'].isChecked())
         for widget, key in ((self.stt_panel.device, 'stt_device'),
                             (self.stt_panel.gpu_precision, 'stt_precision')):
             if key in settings:
