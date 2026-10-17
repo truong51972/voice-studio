@@ -74,3 +74,22 @@ def test_source_package_exports_are_backward_compatible():
     assert ui.MainWindow.__module__ == "voice_studio.ui.main_window"
     assert ui.EditorTimelineWidget.__module__ == "voice_studio.ui.widgets.timeline"
     assert ui._parse_timecode("01:10.0") == 70
+
+
+def test_similarity_plot_renders_real_window_scores_without_loading_a_model():
+    from voice_studio.task_runtime import reconstruct_locator
+    from voice_studio.ui.widgets.similarity_plot import SimilarityPlotWidget
+    app = create_application([])
+    plot = SimilarityPlotWidget()
+    plot.resize(400, 180)
+    bundle = reconstruct_locator({'media_kind': 'audio', 'duration': 4., 'results': [
+        {'key': 'a', 'name': 'Speaker A', 'scores': [
+            {'start': 0., 'end': 2.5, 'center': 1.25, 'score': .8, 'has_speech': True},
+            {'start': .5, 'end': 3., 'center': 1.75, 'score': .7, 'has_speech': True}],
+         'segments': [], 'matched_duration': 0., 'coverage': 0., 'max_score': .8}]})
+    plot.set_bundle(bundle, .6)
+    try:
+        assert not plot.grab().isNull()
+    finally:
+        plot.close()
+        app.processEvents()

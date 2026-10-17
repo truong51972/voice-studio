@@ -1,94 +1,87 @@
-"""Qt project inspector for ordered batch jobs and reviewed results."""
-from __future__ import annotations
-
+"""Portable project picker/source library over the single application session."""
 from dataclasses import asdict
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import (
-    QFileDialog, QGridLayout, QInputDialog, QLabel, QMenu, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
-)
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QGridLayout, QInputDialog,
+                               QHeaderView, QLabel, QMenu, QPushButton, QTableWidget, QTableWidgetItem,
+                               QVBoxLayout, QWidget)
 
-from ...model_registry import get_model, preflight
 from ...projects import ProjectStore
 from ...stt import STTOptions
-from ...task_runtime import TaskManager, TaskRequest
 from ...workspace import projects_directory
+from ..session import ProjectSession
 
 
 class ProjectsPanel(QWidget):
     openRequested = Signal(str, object)
+    mediaRequested = Signal(str)
+    batchRequested = Signal()
 
-    def __init__(self, stt_panel, parent=None):
+    def __init__(self, stt_panel, parent=None, *, session=None):
         super().__init__(parent)
         self.stt_panel = stt_panel
-        self.project: ProjectStore | None = None
-        self.active_id: str | None = None
+        self.session = session or ProjectSession(self)
+        self.active_id = None
         self._active_document = None
-        self._manager = TaskManager(cpu_concurrency=1)
-        self._jobs: dict[str, str] = {}
+        self._active_review_key = None
         layout = QVBoxLayout(self)
         buttons = QGridLayout()
-        for index, (label, callback) in enumerate((
-            ("New", self._new),
-            ("Open project", self._open),
-            ("Recent", self._recent),
-            ("Add media", self._add),
-            ("Relink", self._relink),
-            ("Run pending", self._run),
-            ("Export", self._export),
-        )):
+        for index, (label, callback) in enumerate((("New", self._new), ("Open", self._open),
+                                                 ("Recent", self._recent), ("Import", self._add),
+                                                 ("Relink", self._relink), ("STT all", self._run),
+                                                 ("Export all", self._export))):
             button = QPushButton(label)
             button.clicked.connect(callback)
-            buttons.addWidget(button, index // 4, index % 4)
+            buttons.addWidget(button, index // 3, index % 3)
         layout.addLayout(buttons)
-        self.status = QLabel("New/Open project · portable .projects alongside the app. Media remain external.")
+        self.status = QLabel("New/Open project · external media references")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Media", "Status", "Duration"])
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.cellDoubleClicked.connect(self._select)
+        self.table.setHorizontalHeaderLabels(["Source", "Status", "Duration"])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().hide()
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.cellClicked.connect(self._select)
         layout.addWidget(self.table, 1)
-        self._timer = QTimer(self)
-        self._timer.setInterval(150)
-        self._timer.timeout.connect(self._poll)
+        self.session.changed.connect(self._refresh)
+        self.session.statusChanged.connect(self.status.setText)
 
-    def _open(self) -> None:
+    @property
+    def project(self):
+        return self.session.project
+
+    def _open(self):
         try:
             root = projects_directory()
             folder = QFileDialog.getExistingDirectory(self, "Open portable project", str(root))
             if folder:
                 path = Path(folder).resolve()
                 if path.parent != root or not (path / "project.json").is_file():
-                    raise ValueError("Choose a project inside .projects alongside the app. "
-                                     "To restore a legacy project, copy its entire folder there first.")
+                    raise ValueError("Choose a project inside .projects alongside the app. Copy an entire legacy project folder there to restore it.")
                 self._open_folder(str(path))
         except (OSError, ValueError) as exc:
             self.status.setText(str(exc))
 
-    def _new(self) -> None:
-        if self._jobs:
-            self.status.setText("Finish/cancel batch jobs before switching projects.")
-            return
+    def _new(self):
         name, accepted = QInputDialog.getText(self, "New portable project", "Project name")
         if not accepted or not name.strip():
             return
         try:
-            project = ProjectStore.create_portable(name.strip())
-            self.project = project
-            self.active_id = None
-            self._active_document = None
-            self._refresh()
+            self.session.open(ProjectStore.create_portable(name.strip()))
+            self.active_id = self._active_document = None
         except (OSError, ValueError) as exc:
             self.status.setText(str(exc))
 
-    def _recent(self) -> None:
+    def _recent(self):
         try:
-            manifests = sorted(projects_directory().glob("*/project.json"),
-                               key=lambda path: path.stat().st_mtime, reverse=True)
+            manifests = sorted(projects_directory().glob("*/project.json"), key=lambda p: p.stat().st_mtime, reverse=True)
             menu = QMenu(self)
             for manifest in manifests[:10]:
                 try:
@@ -96,159 +89,101 @@ class ProjectsPanel(QWidget):
                 except (OSError, ValueError, AttributeError):
                     name = manifest.parent.name
                 action = menu.addAction(str(name))
-                action.triggered.connect(lambda _checked=False, folder=manifest.parent: self._open_folder(str(folder)))
-            if not manifests:
-                self.status.setText("No projects yet. Create a New project first.")
-            else:
+                action.triggered.connect(lambda checked=False, folder=manifest.parent: self._open_folder(str(folder)))
+            if manifests:
                 menu.exec(self.cursor().pos())
+            else:
+                self.status.setText("No projects yet. Choose New to start.")
         except OSError as exc:
             self.status.setText(str(exc))
 
-    def _open_folder(self, folder: str) -> None:
-        if self._jobs:
-            self.status.setText("Finish/cancel batch jobs before switching projects.")
-            return
+    def _open_folder(self, folder):
         try:
-            project = ProjectStore(Path(folder))
+            project = ProjectStore(Path(folder), check_sources=False)
+            self.session.open(project)
+            self.active_id = self._active_document = None
         except (OSError, ValueError, KeyError, TypeError) as exc:
             self.status.setText(f"Cannot open project: {exc}")
-            return
-        self.project = project
-        self.active_id = None
-        self._active_document = None
-        self._refresh()
 
-    def _add(self) -> None:
-        if self.project is None or self._jobs:
-            self.status.setText("Open a project first and finish current jobs.")
+    def _add(self):
+        if self.project is None:
+            self.status.setText("Create/open a project first")
             return
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "Import audio/video", "",
-            "Media (*.m4a *.mp3 *.wav *.flac *.ogg *.mp4 *.mkv *.mov *.avi *.webm)",
-        )
+        paths, _ = QFileDialog.getOpenFileNames(self, "Import media", "",
+            "Media (*.m4a *.mp3 *.wav *.flac *.ogg *.aac *.mp4 *.mkv *.mov *.avi *.webm *.m4v);;All files (*)")
         if paths:
-            self.project.add(paths)
-            self._refresh()
+            try:
+                self.session.import_media(paths)
+            except (ValueError, OSError) as exc:
+                self.status.setText(str(exc))
 
     def _selected_item(self):
-        if self.project is None or self.table.currentRow() < 0:
-            return None
         row = self.table.currentRow()
-        return self.project.items[row] if row < len(self.project.items) else None
+        return self.project.items[row] if self.project and 0 <= row < len(self.project.items) else None
 
-    def _relink(self) -> None:
-        if self._jobs:
-            self.status.setText("Finish/cancel batch jobs before relinking media.")
-            return
+    def _relink(self):
         item = self._selected_item()
-        if item is None or self.project is None:
-            return
-        path, _ = QFileDialog.getOpenFileName(self, "Relink source media")
-        if path:
-            self.project.relink(item.id, path)
-            self._refresh()
+        if item:
+            path, _ = QFileDialog.getOpenFileName(self, "Relink source media")
+            if path:
+                try:
+                    self.session.relink(item.id, path)
+                except (ValueError, OSError) as exc:
+                    self.status.setText(str(exc))
 
-    def _options(self) -> dict:
-        return asdict(STTOptions(
-            model_id=str(self.stt_panel.model.currentData()),
-            language=str(self.stt_panel.language.currentData()),
-            vad=self.stt_panel.vad.isChecked(),
-            word_timestamps=self.stt_panel.words.isChecked(),
-        ))
+    def _options(self):
+        return asdict(STTOptions(model_id=str(self.stt_panel.model.currentData()),
+                                language=str(self.stt_panel.language.currentData()),
+                                vad=self.stt_panel.vad.isChecked(), word_timestamps=self.stt_panel.words.isChecked()))
 
-    def _run(self) -> None:
-        if self.project is None or self._jobs:
-            self.status.setText("Open project / wait for current batch.")
-            return
-        options = self._options()
-        blocked = preflight(get_model(options["model_id"]), device="cpu")
-        if blocked:
-            self.status.setText("; ".join(blocked))
-            return
-        for item in self.project.items:
-            if not self.project.should_run(item, options):
-                continue
-            self.project.begin(item.id, options)
-            identifier = self._manager.submit(TaskRequest(
-                kind="stt", inputs={"target_path": item.source, "options": options},
-            ))
-            self._jobs[identifier] = item.id
-        if not self._jobs:
-            self.status.setText("No new jobs: all unaffected results are cached.")
-            return
-        self._manager.poll()
-        self._timer.start()
-        self.status.setText(f"Queued {len(self._jobs)} files (sequential).")
-        self._refresh()
+    def _run(self):
+        self.batchRequested.emit()
 
-    def _poll(self) -> None:
-        self._manager.poll()
-        for job_id, item_id in list(self._jobs.items()):
-            state = self._manager.snapshot(job_id)
-            if state.state not in ("completed", "failed", "cancelled"):
-                continue
-            try:
-                if state.state == "completed":
-                    self.project.complete(item_id, self._manager.result(job_id))
-                else:
-                    self.project.fail(item_id, state.error or "Cancelled")
-            except Exception as exc:
-                self.project.fail(item_id, str(exc))
-            self._manager.acknowledge(job_id)
-            del self._jobs[job_id]
-            self._refresh()
-        if not self._jobs:
-            self._timer.stop()
-            self.status.setText("Batch complete. Double-click a row to review.")
-
-    def _refresh(self) -> None:
-        if self.project is None:
+    def _refresh(self):
+        selected = self.active_id
+        self.table.setRowCount(len(self.project.items) if self.project else 0)
+        if not self.project:
             return
-        self.table.setRowCount(len(self.project.items))
         for row, item in enumerate(self.project.items):
-            values = (
-                Path(item.source).name, item.status,
-                f"{item.duration:.1f}s" if item.duration is not None else "",
-            )
-            for col, value in enumerate(values):
-                self.table.setItem(row, col, QTableWidgetItem(value))
-        self.status.setText(f"{self.project.name} · {len(self.project.items)} files")
+            latest = next((r for r in reversed(self.project.analyses) if r.media_id == item.id), None)
+            state = item.status if item.status in ('missing', 'changed') else f'{latest.task}: {latest.state}' if latest else item.status
+            values = (Path(item.source).name, state, f"{item.duration:.1f}s" if item.duration else "Probe pending")
+            for column, value in enumerate(values):
+                cell = QTableWidgetItem(value)
+                cell.setToolTip(item.error or (latest.error if latest else "") or item.source)
+                self.table.setItem(row, column, cell)
+            if item.id == selected:
+                self.table.selectRow(row)
+        self.status.setText(f"{self.project.name} · {len(self.project.items)} sources")
 
-    def _select(self, row: int, _column: int) -> None:
-        if self.project is None or row >= len(self.project.items):
+    def _select(self, row, column):
+        if not self.project or not 0 <= row < len(self.project.items):
             return
         item = self.project.items[row]
-        if item.status != "completed":
-            self.status.setText(item.error or "File is not yet processed.")
-            return
         self.active_id = item.id
-        self._active_document = self.project.review(item.id)
-        self.openRequested.emit(item.source, self._active_document)
+        self.mediaRequested.emit(item.id)
+        if item.status == "completed":
+            self._active_review_key = item.settings_key
+            self._active_document = self.project.review(item.id)
+            self.openRequested.emit(item.source, self._active_document)
+        else:
+            self._active_document = None
 
-    def save_active_review(self, document) -> None:
-        if self.project is None or self.active_id is None or document is None:
-            return
-        item = self.project.get(self.active_id)
-        if document is not self._active_document:
-            return
-        self.project.save_review(self.active_id, document)
+    def save_active_review(self, document):
+        if self.project and self.active_id and document is self._active_document and document is not None:
+            self.project.save_review(self.active_id, document, settings_key=self._active_review_key)
 
-    def _export(self) -> None:
-        if self.project is None:
+    def _export(self):
+        if not self.project:
             return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export combined transcript", "",
-            "Markdown (*.md);;Plain text (*.txt)",
-        )
-        if not path:
-            return
-        kind = "txt" if Path(path).suffix.lower() == ".txt" else "md"
-        if not Path(path).suffix:
-            path += "." + kind
-        Path(path).write_text(self.project.combined_export(kind), encoding="utf-8")
-        self.status.setText(f"Exported: {Path(path).name}")
-
-    def closeEvent(self, event) -> None:
-        self._timer.stop()
-        self._manager.close()
-        super().closeEvent(event)
+        path, _ = QFileDialog.getSaveFileName(self, "Export ordered project", "",
+                                              "Markdown (*.md);;Plain text (*.txt);;SubRip (*.srt);;JSON (*.json)")
+        if path:
+            try:
+                kind = Path(path).suffix.lstrip('.').lower() or 'md'
+                if not Path(path).suffix:
+                    path += '.md'
+                Path(path).write_text(self.project.combined_export(kind), encoding="utf-8")
+                self.status.setText(f"Exported {Path(path).name}")
+            except (ValueError, OSError) as exc:
+                self.status.setText(str(exc))

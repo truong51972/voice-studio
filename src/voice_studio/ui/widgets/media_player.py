@@ -17,6 +17,8 @@ class DetectionOverlay(QWidget):
         super().__init__(parent)
         self._bundle: AnalysisBundle | None = None
         self._position_seconds = 0.0
+        self._turns = []
+        self._names = {}
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -26,6 +28,10 @@ class DetectionOverlay(QWidget):
 
     def set_position(self, seconds: float) -> None:
         self._position_seconds = max(0.0, seconds)
+        self.update()
+
+    def set_turns(self, turns, names):
+        self._turns, self._names = turns, names
         self.update()
 
     def _active_results(self):
@@ -48,6 +54,15 @@ class DetectionOverlay(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().paintEvent(event)
         active = self._active_results()
+        if not active and self._turns:
+            labels = [self._names.get(t['speaker_id'], 'Anonymous') + (' · overlap' if t.get('overlap') else '')
+                      for t in self._turns if t['start'] <= self._position_seconds < t['end']]
+            if labels:
+                painter = QPainter(self)
+                painter.fillRect(8, self.height() - 48, max(1, self.width() - 16), 40, QColor(10, 12, 16, 210))
+                painter.setPen(QColor('#e7f4f7'))
+                painter.drawText(self.rect().adjusted(18, 0, -12, -12), Qt.AlignmentFlag.AlignBottom, ' · '.join(dict.fromkeys(labels)))
+            return
         if not active:
             return
 
