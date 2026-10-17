@@ -344,12 +344,25 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 self.session.analyze('summary', media_id, {'model': model}, document=document.serialize())
         self._guard(run)
 
+    def _ready_locator(self):
+        from ..model_catalog import descriptors
+        from ..model_service import ModelService
+        model = next(entry for entry in descriptors("locator") if entry.profile_key == self.profile.currentData())
+        errors = ModelService().preflight(model)
+        if errors:
+            self._status("; ".join(errors))
+            self._open_models(model.id)
+            return False
+        return True
+
     def _add_reference(self):
         def run():
             reference = self.speakers_panel.reference
             project, item = self.session.project, self._current_item()
             if not item:
                 raise ValueError('Select a source first')
+            if not self._ready_locator():
+                return
             if not reference.clean.isChecked():
                 raise ValueError('Preview the interval and confirm it contains one clear voice')
             speaker_id = reference.speaker.currentData()
@@ -374,6 +387,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             targets = self._targets()
             if not targets:
                 raise ValueError('Import sources and detect speakers first')
+            if not self._ready_locator():
+                return
             self.session.analyze('reconcile', targets[0], {'profile': str(self.profile.currentData()), 'threshold': self.threshold.value()})
         self._guard(run)
 
@@ -385,6 +400,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             if region.fingerprint != source.fingerprint:
                 raise ValueError('Source changed; select a new reference interval')
             project.validate_reference(region)
+            if not self._ready_locator():
+                return
             job = self.session.analyze('reference', source.id, {'profile': str(self.profile.currentData()), 'region_id': region.id},
                                  region=asdict(region), source=asdict(source))
             if job:

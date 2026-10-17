@@ -29,16 +29,19 @@ class LocatorPanelsMixin:
         self.profile = QComboBox()
         for label, key in PROFILE_CHOICES:
             self.profile.addItem(label, key)
-        self.profile.setCurrentIndex(max(0, self.profile.findData(DEFAULT_PROFILE_KEY)))
+        from ...model_catalog import get_model
+        from ...model_service import ModelService
+        preferred = get_model(ModelService().default_id("locator")).profile_key
+        self.profile.setCurrentIndex(max(0, self.profile.findData(preferred)))
         self.profile.currentIndexChanged.connect(self._apply_profile_default)
 
         self.threshold = QDoubleSpinBox()
         self.threshold.setRange(0.20, 0.90)
         self.threshold.setDecimals(2)
         self.threshold.setSingleStep(0.01)
-        self.threshold.setValue(DEFAULT_THRESHOLD)
+        self.threshold.setValue(get_inference_profile(preferred).default_threshold)
 
-        self.profile_help = QLabel(get_inference_profile(DEFAULT_PROFILE_KEY).description)
+        self.profile_help = QLabel(get_inference_profile(preferred).description)
         self.profile_help.setWordWrap(True)
         self.profile_help.setStyleSheet("color: #9aa1ab;")
 
