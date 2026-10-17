@@ -19,6 +19,7 @@ from ..timecode import _fmt_time
 class STTPanel(QWidget):
     seekRequested = Signal(float)
     resultReady = Signal(object)
+    documentChanged = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -194,6 +195,7 @@ class STTPanel(QWidget):
         row = item.row()
         if row < len(self.document.edited):
             self.document.replace(self.document.edited[row].id, text=item.text())
+            self.documentChanged.emit()
 
     def _selected_rows(self) -> list[int]:
         return sorted({i.row() for i in self.table.selectedIndexes()})
@@ -212,6 +214,7 @@ class STTPanel(QWidget):
                     speaker_id=label.strip() or None, rename_speaker=True,
                 )
             self._render()
+            self.documentChanged.emit()
 
     def _split(self) -> None:
         if self.document is None:
@@ -230,6 +233,7 @@ class STTPanel(QWidget):
             try:
                 self.document.split(segment.id, at)
                 self._render()
+                self.documentChanged.emit()
             except ValueError as exc:
                 self.status.setText(str(exc))
 
@@ -243,11 +247,13 @@ class STTPanel(QWidget):
         first, second = (self.document.edited[i].id for i in rows)
         self.document.merge(first, second)
         self._render()
+        self.documentChanged.emit()
 
     def _reset(self) -> None:
         if self.document:
             self.document.reset()
             self._render()
+            self.documentChanged.emit()
 
     def _export(self) -> None:
         if self.document is None:

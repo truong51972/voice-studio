@@ -18,6 +18,7 @@ from ..profiles import get_inference_profile
 from .model_manager import ModelManagerDialog
 from .panels.locator import LocatorPanelsMixin
 from .panels.stt import STTPanel
+from .panels.projects import ProjectsPanel
 from .resources import _resource_path
 from .theme import APP_STYLESHEET
 from .timecode import _fmt_time, _parse_timecode, milliseconds_to_seconds, seconds_to_milliseconds
@@ -139,6 +140,10 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.stt_panel = STTPanel(self)
         self.stt_panel.seekRequested.connect(self._seek_to_seconds)
         self.inspector_tabs.addTab(self.stt_panel, "STT")
+        self.projects_panel = ProjectsPanel(self.stt_panel, self)
+        self.projects_panel.openRequested.connect(self._open_project_media)
+        self.inspector_tabs.addTab(self.projects_panel, "Projects")
+        self.stt_panel.documentChanged.connect(self._save_project_review)
 
         self.workspace_splitter.addWidget(preview_panel)
         self.workspace_splitter.addWidget(self.inspector_tabs)
@@ -221,6 +226,18 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
     def _open_models(self) -> None:
         dialog = ModelManagerDialog(self)
         dialog.exec()
+
+    @Slot(str, object)
+    def _open_project_media(self, source: str, document: object) -> None:
+        self._target_path = source
+        self.target_label.setText(Path(source).name)
+        self.stt_panel.set_media(source)
+        self.stt_panel.load_document(document)
+        self._player.setSource(QUrl.fromLocalFile(source))
+
+    @Slot()
+    def _save_project_review(self) -> None:
+        self.projects_panel.save_active_review(self.stt_panel.document)
 
     @Slot()
     def _choose_target(self) -> None:
@@ -389,6 +406,8 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
     def closeEvent(self, event):
         self.stt_panel.cancel()
         self.stt_panel._manager.close()
+        self.projects_panel._timer.stop()
+        self.projects_panel._manager.close()
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
         super().closeEvent(event)
