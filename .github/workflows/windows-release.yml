@@ -9,14 +9,15 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen
       HF_HUB_DISABLE_TELEMETRY: "1"
+      PYANNOTE_METRICS_ENABLED: "0"
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv sync --dev --extra stt
+      - run: uv sync --dev --extra stt --extra diarization
       - run: uv run poe models
       - run: uv run poe test
-      - name: Build packaged native app with STT runtime
-        run: uv run python scripts/build.py --with-stt
+      - name: Build packaged native app with STT and Auto Detect runtimes
+        run: uv run python scripts/build.py --with-stt --with-diarization
       - name: Create ZIP and SHA256
         run: uv run python scripts/release_zip.py --platform windows
       - uses: actions/upload-artifact@v4

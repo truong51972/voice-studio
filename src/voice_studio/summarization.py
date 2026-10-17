@@ -90,6 +90,8 @@ def summarize(
                 "section": proposed["section"], "text": text,
                 "source_ids": cited, "source_time_ranges": ranges,
                 "label": "AI-generated draft — verify against source",
+                "source_anchors": [document.raw_metadata['source_anchors'][sid] for sid in cited]
+                    if document.raw_metadata.get('source_anchors') else [],
             })
     # Provenance snapshot, not AI-transformed transcript.
     fingerprint = hashlib.sha256(
@@ -121,7 +123,8 @@ def summary_markdown(summary: dict) -> str:
         if not points:
             lines.append("_No source-grounded draft items._")
         for item in points:
-            times = "; ".join(
+            times = "; ".join(f"{Path(anchor['source']).name} {anchor['start']:.1f}–{anchor['end']:.1f}s"
+                              for anchor in item.get('source_anchors', [])) or "; ".join(
                 f"{start:.1f}–{end:.1f}s" for start, end in item["source_time_ranges"]
             )
             lines.append(f"- **AI draft:** {item['text']} *(review audio at {times})*")

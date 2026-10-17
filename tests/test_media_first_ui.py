@@ -41,8 +41,11 @@ def test_workspace_uses_editor_splitters_without_page_scroll():
         assert window.root_splitter.orientation() == Qt.Orientation.Vertical
         assert window.workspace_splitter.orientation() == Qt.Orientation.Horizontal
         assert window.analysis_page.findChildren(QScrollArea) == []
-        assert len(window.reference_inputs) == 1
-        assert window.reference_inputs[0].name_edit.text() == "Speaker 1"
+        assert window.pages.currentIndex() == 0
+        assert window.speakers_panel.mode.currentIndex() == 0
+        assert window.stt_panel._manager is None
+        assert window.diarization_panel._manager is None
+        assert window.summary_panel._manager is None
         assert window.segment_table.columnCount() == 4
         assert window.profile.currentData() == DEFAULT_PROFILE_KEY
         assert not window.windowIcon().isNull()
@@ -51,28 +54,22 @@ def test_workspace_uses_editor_splitters_without_page_scroll():
         app.processEvents()
 
 
-def test_reference_speakers_are_added_progressively_up_to_limit():
+def test_manual_reference_is_a_source_selection_without_enrollment_uploads():
     app = create_application([])
     window = build_app()
     try:
-        assert [item.name_edit.text() for item in window.reference_inputs] == ["Speaker 1"]
-        assert window.add_speaker_button.isEnabled()
-
-        window.add_speaker_button.click()
-        assert [item.name_edit.text() for item in window.reference_inputs] == [
-            "Speaker 1",
-            "Speaker 2",
-        ]
-        assert window.add_speaker_button.isEnabled()
-
-        window.add_speaker_button.click()
-        assert [item.name_edit.text() for item in window.reference_inputs] == [
-            "Speaker 1",
-            "Speaker 2",
-            "Speaker 3",
-        ]
-        assert not window.add_speaker_button.isEnabled()
-        assert window.add_speaker_button.text() == "Maximum 3 speakers"
+        from PySide6.QtWidgets import QPushButton
+        reference = window.speakers_panel.reference
+        assert reference.start.value() == 0
+        assert reference.end.value() == 0
+        assert reference.source.count() == 0
+        assert reference.speaker.count() == 0
+        assert not reference.clean.isChecked()
+        labels = [button.text().lower() for button in reference.findChildren(QPushButton)]
+        assert not any('record' in label or 'upload' in label or 'file' in label for label in labels)
+        assert 'preview interval' in labels
+        window._manual_selection()
+        assert window.speakers_panel.mode.currentIndex() == 1
     finally:
         window.close()
         app.processEvents()

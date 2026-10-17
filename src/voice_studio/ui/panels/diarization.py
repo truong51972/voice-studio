@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QFileDialog, QHeaderView, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -13,12 +13,14 @@ from ...task_runtime import TaskManager, TaskRequest
 
 
 class DiarizationPanel(QWidget):
+    startRequested = Signal()
     seekRequested = Signal(float)
     turnsReady = Signal(object)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, session=None):
         super().__init__(parent)
-        self._manager = TaskManager(cpu_concurrency=1)
+        self.session = session
+        self._manager = TaskManager(cpu_concurrency=1) if session is None else None
         self._job_id = None
         self._source: str | None = None
         self.output: dict | None = None
@@ -51,6 +53,9 @@ class DiarizationPanel(QWidget):
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Start", "End", "Anonymous", "Status"])
         self.table.horizontalHeader().setStretchLastSection(True)
+        for column in (0, 1, 3):
+            self.table.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.cellClicked.connect(self._seek)
         layout.addWidget(self.table)
         self._timer = QTimer(self)
@@ -60,7 +65,8 @@ class DiarizationPanel(QWidget):
     def set_media(self, source: str | None) -> None:
         if self._source == source:
             return
-        self.cancel()
+        if self.session is None:
+            self.cancel()
         self._source = source
         self.output = None
         self.table.setRowCount(0)
@@ -72,6 +78,9 @@ class DiarizationPanel(QWidget):
             self.model_folder.setText(path)
 
     def start(self) -> None:
+        if self.session is not None:
+            self.startRequested.emit()
+            return
         if self._job_id is not None:
             return
         if not self._source or not Path(self._source).is_file():
@@ -108,11 +117,13 @@ class DiarizationPanel(QWidget):
 
     def _show(self, result: dict) -> None:
         self.output = result
+        project = self.session.project if self.session is not None else None
+        names = {s.id: project.speaker(s.id).name for s in project.speakers} if project else {}
         self.table.setRowCount(len(result["turns"]))
         for row, item in enumerate(result["turns"]):
             values = (
                 f"{item['start']:.1f}s", f"{item['end']:.1f}s",
-                item["speaker_id"], "Overlap" if item["overlap"] else "Anonymous",
+                names.get(item["speaker_id"], item["speaker_id"]), "Overlap" if item["overlap"] else "Anonymous",
             )
             for column, value in enumerate(values):
                 self.table.setItem(row, column, QTableWidgetItem(value))
@@ -123,13 +134,16 @@ class DiarizationPanel(QWidget):
 
     def _apply(self) -> None:
         if self.output:
-            self.turnsReady.emit(self.output["turns"])
+            self.turnsReady.emit(self.output.get("exclusive_turns", self.output["turns"]))
 
     def _seek(self, row: int, _column: int) -> None:
         if self.output and row < len(self.output["turns"]):
             self.seekRequested.emit(float(self.output["turns"][row]["start"]))
 
     def cancel(self) -> None:
+        if self.session is not None:
+            self.session.cancel()
+            return
         if self._job_id:
             self._manager.cancel(self._job_id)
             self._finish()
@@ -144,6 +158,8 @@ class DiarizationPanel(QWidget):
         self.cancel_button.setEnabled(False)
 
     def closeEvent(self, event) -> None:
-        self.cancel()
-        self._manager.close()
+        if self.session is None:
+            self.cancel()
+        if self._manager is not None:
+            self._manager.close()
         super().closeEvent(event)

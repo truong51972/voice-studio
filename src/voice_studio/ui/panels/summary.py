@@ -2,10 +2,9 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTextEdit, QVBoxLayout, QWidget,
@@ -16,10 +15,12 @@ from ...task_runtime import TaskManager, TaskRequest
 
 
 class SummaryPanel(QWidget):
-    def __init__(self, stt_panel, parent=None):
+    startRequested = Signal()
+    def __init__(self, stt_panel, parent=None, *, session=None):
         super().__init__(parent)
         self.stt_panel = stt_panel
-        self._manager = TaskManager(cpu_concurrency=1)
+        self.session = session
+        self._manager = TaskManager(cpu_concurrency=1) if session is None else None
         self._job_id: str | None = None
         self._input_file: Path | None = None
         self.result: dict | None = None
@@ -51,11 +52,15 @@ class SummaryPanel(QWidget):
         self._timer.timeout.connect(self._poll)
 
     def reset(self) -> None:
-        self.cancel()
+        if self.session is None:
+            self.cancel()
         self.result = None
         self.preview.clear()
 
     def start(self) -> None:
+        if self.session is not None:
+            self.startRequested.emit()
+            return
         if self._job_id is not None:
             return
         document = self.stt_panel.document
@@ -122,6 +127,9 @@ class SummaryPanel(QWidget):
         self.status.setText(f"Draft and provenance saved to {destination.name}")
 
     def cancel(self) -> None:
+        if self.session is not None:
+            self.session.cancel()
+            return
         if self._job_id:
             self._manager.cancel(self._job_id)
             self._finish()
@@ -139,6 +147,8 @@ class SummaryPanel(QWidget):
         self.cancel_button.setEnabled(False)
 
     def closeEvent(self, event) -> None:
-        self.cancel()
-        self._manager.close()
+        if self.session is None:
+            self.cancel()
+        if self._manager is not None:
+            self._manager.close()
         super().closeEvent(event)

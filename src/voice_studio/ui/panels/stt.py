@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout,
+    QAbstractItemDelegate, QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout,
     QHBoxLayout, QInputDialog, QLabel, QPushButton, QLineEdit,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
@@ -17,17 +17,22 @@ from ..timecode import _fmt_time
 
 
 class STTPanel(QWidget):
+    startRequested = Signal()
+    editingStarted = Signal()
     seekRequested = Signal(float)
     resultReady = Signal(object)
     documentChanged = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, session=None):
         super().__init__(parent)
-        self._manager = TaskManager(cpu_concurrency=1)
+        self.session = session
+        self._manager = TaskManager(cpu_concurrency=1) if session is None else None
         self._job_id: str | None = None
         self._source: str | None = None
         self.raw_result: dict | None = None
         self.document: TranscriptDocument | None = None
+        self.speaker_names = {}
+        self.export_range = None
         layout = QVBoxLayout(self)
         settings = QFormLayout()
         self.model = QComboBox()
@@ -41,8 +46,10 @@ class STTPanel(QWidget):
         self.vad = QCheckBox("Speech filtering (VAD)")
         self.vad.setChecked(True)
         self.words = QCheckBox("Word timestamps")
+        self.export_selection = QCheckBox("Export selected source range only")
         settings.addRow(self.vad)
         settings.addRow(self.words)
+        settings.addRow(self.export_selection)
         layout.addLayout(settings)
 
         commands = QHBoxLayout()
@@ -89,6 +96,7 @@ class STTPanel(QWidget):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
         self.table.itemChanged.connect(self._edit_text)
+        self.table.itemDoubleClicked.connect(lambda _item: self.editingStarted.emit())
         self.table.cellClicked.connect(self._seek)
         layout.addWidget(self.table, 1)
         self._timer = QTimer(self)
@@ -98,13 +106,17 @@ class STTPanel(QWidget):
     def set_media(self, source: str | None) -> None:
         if source == self._source:
             return
-        self.cancel()
+        if self.session is None:
+            self.cancel()
         self._source = source
         self.raw_result = None
         self.document = None
         self.table.setRowCount(0)
 
     def start(self) -> None:
+        if self.session is not None:
+            self.startRequested.emit()
+            return
         if self._job_id is not None:
             return
         if not self._source or not Path(self._source).is_file():
@@ -158,7 +170,8 @@ class STTPanel(QWidget):
 
     def load_document(self, document: TranscriptDocument) -> None:
         """Restores reviewed project data; #8 saves the serialized document."""
-        self.cancel()
+        if self.session is None:
+            self.cancel()
         self.document = document
         self.raw_result = {
             **document.raw_metadata,
@@ -173,7 +186,8 @@ class STTPanel(QWidget):
         self.table.setRowCount(len(self.document.edited))
         for i, s in enumerate(self.document.edited):
             for col, text in enumerate((
-                _fmt_time(s.start), _fmt_time(s.end), s.speaker_id or "", s.text,
+                _fmt_time(s.start), _fmt_time(s.end),
+                'Review speaker' if s.speaker_review_required else self.speaker_names.get(s.speaker_id, s.speaker_id) or "", s.text,
             )):
                 item = QTableWidgetItem(str(text))
                 if col != 3:
@@ -192,6 +206,7 @@ class STTPanel(QWidget):
     def _edit_text(self, item: QTableWidgetItem) -> None:
         if self.document is None or item.column() != 3:
             return
+        self.editingStarted.emit()
         row = item.row()
         if row < len(self.document.edited):
             self.document.replace(self.document.edited[row].id, text=item.text())
@@ -201,13 +216,30 @@ class STTPanel(QWidget):
         return sorted({i.row() for i in self.table.selectedIndexes()})
 
     def _speaker(self) -> None:
+        self.editingStarted.emit()
         if self.document is None:
             return
         rows = self._selected_rows()
         if not rows:
             return
-        label, ok = QInputDialog.getText(self, "Speaker label", "Name (blank = unknown)")
+        project = self.session.project if self.session else None
+        choices = {f'{speaker.name} ({speaker.id[:6]})': speaker.id for speaker in project.speakers
+                   if speaker.merged_into is None} if project else {}
+        if project:
+            label, ok = QInputDialog.getItem(self, 'Speaker label', 'Choose a project speaker or type a new label',
+                                             ['Unknown', *choices], editable=True)
+        else:
+            label, ok = QInputDialog.getText(self, "Speaker label", "Name (blank = unknown)")
         if ok:
+            if project:
+                label = label.strip()
+                if label in choices:
+                    label = choices[label]
+                elif label and label != 'Unknown':
+                    label = project.create_speaker(label).id
+                else:
+                    label = ''
+                self.speaker_names = {speaker.id: project.speaker(speaker.id).name for speaker in project.speakers}
             for row in rows:
                 self.document.replace(
                     self.document.edited[row].id,
@@ -215,8 +247,11 @@ class STTPanel(QWidget):
                 )
             self._render()
             self.documentChanged.emit()
+            if self.session:
+                self.session.changed.emit()
 
     def _split(self) -> None:
+        self.editingStarted.emit()
         if self.document is None:
             return
         rows = self._selected_rows()
@@ -260,14 +295,13 @@ class STTPanel(QWidget):
         if self.document is None:
             self.status.setText("Transcribe this media first.")
             return
-        from ...diarization import attribute_segments
-        source = [entry.as_dict() for entry in self.document.edited]
-        proposed = attribute_segments(source, turns)
-        for old, new in zip(source, proposed):
-            if not old.get("speaker_id") and new.get("speaker_id"):
-                self.document.replace(
-                    old["id"], speaker_id=new["speaker_id"], rename_speaker=True,
-                )
+        record = None
+        if self.session and self.session.project:
+            project = self.session.project
+            item = next((item for item in project.items if item.source == self._source), None)
+            if item:
+                record = project.latest_analysis(item.id, 'diarization')
+        self.document.apply_diarization(turns, analysis_id=record.id if record else None)
         self._render()
         self.documentChanged.emit()
 
@@ -285,10 +319,26 @@ class STTPanel(QWidget):
         if format_name not in ("md", "srt", "txt", "json"):
             format_name = "md"
             path += ".md"
-        Path(path).write_text(
-            export_text(self.document, format_name), encoding="utf-8"
-        )
-        self.status.setText(f"Exported {Path(path).name}")
+        document = TranscriptDocument.restore(self.document.serialize())
+        if self.session and self.session.project:
+            item = next((m for m in self.session.project.items if m.source == self._source), None)
+            if item:
+                document.raw_metadata.update(current_source=item.source, media_id=item.id, content_fingerprint=item.fingerprint)
+        from dataclasses import replace
+        document.edited = [replace(s, speaker_id=self.speaker_names.get(s.speaker_id, s.speaker_id)) for s in document.edited]
+        source_range = None
+        if self.export_selection.isChecked():
+            if not self.export_range:
+                self.status.setText("Choose a valid source selection before exporting")
+                return
+            start, end = self.export_range
+            if end <= start:
+                self.status.setText("Choose a valid source selection before exporting")
+                return
+            source_range = (start, end)
+        Path(path).write_text(export_text(document, format_name, source_range=source_range), encoding="utf-8")
+        note = ' · Boundary text includes only fully timed words; unavailable text omitted.' if source_range else ''
+        self.status.setText(f"Exported {Path(path).name}{note}")
 
     def _seek(self, row: int, _column: int) -> None:
         if self.document is not None and row < len(self.document.edited):
@@ -305,7 +355,17 @@ class STTPanel(QWidget):
                     self.table.selectRow(i)
                 break
 
+    def commit_edit(self):
+        if self.table.state() == QAbstractItemView.State.EditingState:
+            editor = self.table.findChild(QLineEdit)
+            if editor is not None:
+                self.table.commitData(editor)
+                self.table.closeEditor(editor, QAbstractItemDelegate.EndEditHint.NoHint)
+
     def cancel(self) -> None:
+        if self.session is not None:
+            self.session.cancel()
+            return
         if self._job_id:
             self._manager.cancel(self._job_id)
             self.status.setText("STT cancelled.")
@@ -320,6 +380,8 @@ class STTPanel(QWidget):
         self.cancel_button.setEnabled(False)
 
     def closeEvent(self, event) -> None:
-        self.cancel()
-        self._manager.close()
+        if self.session is None:
+            self.cancel()
+        if self._manager is not None:
+            self._manager.close()
         super().closeEvent(event)

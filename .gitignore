@@ -9,6 +9,7 @@ models/*.onnx
 !models/README.md
 
 .tools/
+.projects/
 release/
 
 .venv/
