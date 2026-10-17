@@ -21,13 +21,13 @@ TaskState = Literal["queued", "running", "completed", "failed", "cancelled"]
 
 @dataclass(frozen=True)
 class TaskRequest:
-    kind: Literal["locator", "diagnostic", "stt"]
+    kind: Literal["locator", "diagnostic", "stt", "diarization"]
     inputs: dict
     device: Literal["cpu", "gpu"] = "cpu"
     def __post_init__(self):
         if self.device not in ("cpu", "gpu"):
             raise ValueError("Unknown task device")
-        if self.kind not in ("locator", "diagnostic", "stt"):
+        if self.kind not in ("locator", "diagnostic", "stt", "diarization"):
             raise ValueError("Unknown task kind")
         # Never marshal sample arrays, model instances, Qt widgets or arbitrary callables.
         def plain(x):
@@ -56,6 +56,12 @@ def _child_entry(request: TaskRequest, artifact: str) -> None:
             delay = float(request.inputs.get("seconds", 0.0))
             time.sleep(min(max(delay, 0), 10))
             payload = {"kind": "diagnostic", "value": str(request.inputs.get("value", ""))}
+        elif request.kind == "diarization":
+            from .diarization import diarize
+            payload = diarize(
+                request.inputs["target_path"],
+                request.inputs["model_directory"],
+            )
         elif request.kind == "stt":
             from .stt import STTOptions, transcribe
             def progress(stage: str):
