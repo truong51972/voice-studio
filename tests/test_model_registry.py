@@ -48,3 +48,39 @@ def test_models_resolve_outside_repo(tmp_path):
     model = get_model("whisper-medium")
     assert model_path(model, root=tmp_path).parent == tmp_path
     assert all(m.source for m in descriptors())
+
+
+def test_snapshot_install_copies_hf_cache_symlinks(tmp_path, monkeypatch):
+    """Hugging Face snapshots store regular assets as symlinks into blob cache."""
+    import sys
+    import types
+    from types import SimpleNamespace
+
+    model = get_model("whisper-small")
+    blob_dir = tmp_path / "blobs"
+    snap = tmp_path / "snapshot"
+    blob_dir.mkdir()
+    snap.mkdir()
+    for name in model.required_assets:
+        asset = blob_dir / name
+        asset.write_bytes(("file-" + name).encode())
+        try:
+            (snap / name).symlink_to(asset)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlink creation requires Windows Developer Mode or admin privileges")
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_hub.HfApi = lambda: SimpleNamespace(
+        model_info=lambda *_args, **_kwargs: SimpleNamespace(sha="a" * 40)
+    )
+    fake_hub.snapshot_download = lambda **_kwargs: str(snap)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
+    original_find_spec = catalog.importlib.util.find_spec
+    monkeypatch.setattr(
+        catalog.importlib.util, "find_spec",
+        lambda name: object() if name == "huggingface_hub" else original_find_spec(name),
+    )
+    result = catalog.install(model, root=tmp_path / "models")
+    assert result.is_dir()
+    assert (result / "model.bin").is_file()
+    assert not (result / "model.bin").is_symlink()
+    assert catalog.installed(model, root=tmp_path / "models")
