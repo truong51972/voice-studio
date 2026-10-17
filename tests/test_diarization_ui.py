@@ -13,9 +13,17 @@ def test_optional_diarization_keeps_one_player_and_raw_transcript_untouched():
             "kind": "stt", "source": "a.wav", "duration": 3,
             "segments": [{"id": "s1", "start": 0, "end": 2, "text": "hello"}],
         })
-        window.stt_panel.apply_diarization([
+        original = [
+            {"start": 0, "end": 2, "speaker_id": "Speaker 1", "overlap": True},
+            {"start": 1, "end": 3, "speaker_id": "Speaker 2", "overlap": True},
+        ]
+        exclusive = [
             {"start": 0, "end": 2, "speaker_id": "Speaker 1", "overlap": False},
-        ])
+        ]
+        window.diarization_panel._show({"turns": original, "exclusive_turns": exclusive,
+                                        "speakers": ["Speaker 1", "Speaker 2"]})
+        assert window.diarization_panel.table.item(0, 3).text() == "Overlap"
+        window.diarization_panel._apply()
         assert window.stt_panel.document.edited[0].speaker_id == "Speaker 1"
         assert window.stt_panel.document.raw[0].speaker_id is None
     finally:

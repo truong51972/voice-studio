@@ -14,8 +14,11 @@ A **local-first PySide6 desktop editor** for audio/video analysis, bootstrapped 
 - Optional offline **faster-whisper STT** (Vietnamese/English/auto language selection), word timestamps and source-aligned segments.
 - Editable, searchable transcripts; split/merge, speaker labels, common-player seek and TXT/SRT/Markdown/JSON exports.
 - Multi-file local project queue, per-file cache and reviewed transcripts, combined Markdown/TXT exports.
+- Portable **Projects → New/Open/Recent** storage in `.projects/` beside the app; backed-up v1→v2 migration and source-local clip mapping.
 - Optional local Community-1 diarization, anonymous speaker turns and editable attribution.
 - Optional localhost Ollama source-cited **AI draft** summaries and separate FFmpeg audio denoise output.
+
+The [issue #26 refactor](https://github.com/truong51972/voice-studio/issues/26) has started with portable storage, timeline domain contracts, shared FFmpeg AAC/M4A decoding and preservation of overlap/exclusive diarization. The GUI still uses the existing single-source player and reference enrollment. See [implementation status](docs/project_workspace_refactor.md) for remaining work in the **single implementation PR**; integrated acceptance is not complete.
 
 **Voice matching is not anonymous-speaker diarization or identity verification.** Cosine similarity is not a probability.
 
@@ -51,6 +54,8 @@ Model management: [docs/model_manager.md](docs/model_manager.md). Open **Models*
 4. Inspect matching speaker clips on the timeline, seek by clicking, and review segment details.
 5. For STT, select the **STT** inspector, choose an installed model/language, then **Transcribe**. Edit segments and export the reviewed result.
 6. Use **Projects** for a batch of recordings, **Diarization** for optional anonymous speaker clustering, or **Summary** for explicit localhost Ollama-generated drafts.
+
+In **Projects**, choose **New**, name the project, then **Add media** to import multiple external recordings. **Open project** and **Recent** reopen portable workspaces. Source checkouts store data in `<repo>/.projects/` regardless of the working directory; packaged builds use `<exe-directory>/.projects/`. The portable folder must be writable. Back up the entire `.projects/` folder and your external media before upgrades or moves; moving only the app does not move those recordings. Model/runtime caches retain their separate locations. See [Projects](docs/projects.md) for migration and recovery.
 
 The player, overlay, seek/playhead and QSplitter structure intentionally remain equivalent to Voice Locator v0.5.1. The educational page has been replaced with a general Help tab.
 

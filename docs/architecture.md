@@ -34,6 +34,21 @@ The `voice_studio.ui` package continues exporting `build_app`, `create_applicati
 
 ## Domain contract
 
+The first [#26 foundation](project_workspace_refactor.md) adds `workspace.py` for
+portable storage and `domain/timeline.py` for ordered source clips. `TimelineMap`
+derives starts and delegates both project/source conversions to `map_time`, with
+source-duration validation and explicit boundary ownership. `ProjectStore` v2
+persists these clips alongside stable media IDs; raw inference and review files
+remain source-relative and independent of edits to clip order/ranges. The existing
+GUI timeline/player are not yet wired to this project clock. Speaker/reference
+records and application-wide dispatch are follow-up work within the same PR.
+
+`media.stream_audio` is the shared bounded FFmpeg decoder for STT and array-based
+Locator adapters. It supports source start/end seeking, limits each yielded PCM
+chunk and cleans up the decoder on iterator close. `prepare_audio` uses it for
+AAC/M4A as well as WAV/FLAC. Locator still collects the complete target into its
+legacy array; do not claim a bounded whole-pipeline memory footprint yet.
+
 `MediaAsset` describes **one source file**; `Segment`, `TranscriptSegment`, and `SpeakerTurn` use finite floating-point **seconds since that file's beginning**. Independent recordings have independent time origins; no concatenated offsets are introduced into persisted timestamps.
 
 `ModelMetadata` / `RunMetadata` record immutable engine configuration and run provenance. `AnalysisResult` holds the **raw inference snapshot**. `TranscriptCorrection` represents editable user overrides separately; never write generated summary/guesses back into the raw transcript. Confidence is optional; unavailable confidence is `None`, not an invented probability. Speaker turns may remain anonymous/uncertain, distinct from verified identity.

@@ -3,8 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TypeAlias
 
-import soundfile as sf
-
 import numpy as np
 from scipy.signal import resample_poly
 
@@ -60,7 +58,8 @@ def prepare_audio(value: AudioInput, target_rate: int = SAMPLE_RATE) -> np.ndarr
         raise ValueError("Chưa có audio đầu vào.")
 
     if isinstance(value, (str, Path)):
-        data, sample_rate = sf.read(str(value), always_2d=False)
+        from .media import decode_audio
+        return to_mono_float32(decode_audio(value, sample_rate=target_rate))
     else:
         sample_rate, data = value
 

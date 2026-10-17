@@ -21,3 +21,15 @@ def test_windows_build_uses_valid_png_icon_source() -> None:
     assert build.APP_ICON.name == "voice-studio.png"
     assert build.APP_ICON.read_bytes().startswith(build.PNG_SIGNATURE)
     build._verify_assets()
+
+
+def test_build_refuses_to_replace_portable_user_projects(tmp_path):
+    import pytest
+    build = _load_build_module()
+    projects = tmp_path / ".projects"
+    projects.mkdir()
+    manifest = projects / "project.json"
+    manifest.write_text("important")
+    with pytest.raises(SystemExit, match="Refusing to overwrite"):
+        build._protect_portable_projects(tmp_path)
+    assert manifest.read_text() == "important"

@@ -123,7 +123,7 @@ class DiarizationPanel(QWidget):
 
     def _apply(self) -> None:
         if self.output:
-            self.turnsReady.emit(self.output["turns"])
+            self.turnsReady.emit(self.output.get("exclusive_turns", self.output["turns"]))
 
     def _seek(self, row: int, _column: int) -> None:
         if self.output and row < len(self.output["turns"]):

@@ -2,11 +2,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import json
 from pathlib import Path
 
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QPushButton, QTableWidget,
+    QFileDialog, QGridLayout, QInputDialog, QLabel, QMenu, QPushButton, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -14,6 +15,7 @@ from ...model_registry import get_model, preflight
 from ...projects import ProjectStore
 from ...stt import STTOptions
 from ...task_runtime import TaskManager, TaskRequest
+from ...workspace import projects_directory
 
 
 class ProjectsPanel(QWidget):
@@ -24,22 +26,25 @@ class ProjectsPanel(QWidget):
         self.stt_panel = stt_panel
         self.project: ProjectStore | None = None
         self.active_id: str | None = None
+        self._active_document = None
         self._manager = TaskManager(cpu_concurrency=1)
         self._jobs: dict[str, str] = {}
         layout = QVBoxLayout(self)
-        buttons = QHBoxLayout()
-        for label, callback in (
+        buttons = QGridLayout()
+        for index, (label, callback) in enumerate((
+            ("New", self._new),
             ("Open project", self._open),
+            ("Recent", self._recent),
             ("Add media", self._add),
             ("Relink", self._relink),
             ("Run pending", self._run),
             ("Export", self._export),
-        ):
+        )):
             button = QPushButton(label)
             button.clicked.connect(callback)
-            buttons.addWidget(button)
+            buttons.addWidget(button, index // 4, index % 4)
         layout.addLayout(buttons)
-        self.status = QLabel("Choose a project folder; files remain local.")
+        self.status = QLabel("New/Open project · portable .projects alongside the app. Media remain external.")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.table = QTableWidget(0, 3)
@@ -52,16 +57,65 @@ class ProjectsPanel(QWidget):
         self._timer.timeout.connect(self._poll)
 
     def _open(self) -> None:
-        folder = QFileDialog.getExistingDirectory(self, "Open/create local project folder")
-        if folder:
-            self._open_folder(folder)
+        try:
+            root = projects_directory()
+            folder = QFileDialog.getExistingDirectory(self, "Open portable project", str(root))
+            if folder:
+                path = Path(folder).resolve()
+                if path.parent != root or not (path / "project.json").is_file():
+                    raise ValueError("Choose a project inside .projects alongside the app. "
+                                     "To restore a legacy project, copy its entire folder there first.")
+                self._open_folder(str(path))
+        except (OSError, ValueError) as exc:
+            self.status.setText(str(exc))
+
+    def _new(self) -> None:
+        if self._jobs:
+            self.status.setText("Finish/cancel batch jobs before switching projects.")
+            return
+        name, accepted = QInputDialog.getText(self, "New portable project", "Project name")
+        if not accepted or not name.strip():
+            return
+        try:
+            project = ProjectStore.create_portable(name.strip())
+            self.project = project
+            self.active_id = None
+            self._active_document = None
+            self._refresh()
+        except (OSError, ValueError) as exc:
+            self.status.setText(str(exc))
+
+    def _recent(self) -> None:
+        try:
+            manifests = sorted(projects_directory().glob("*/project.json"),
+                               key=lambda path: path.stat().st_mtime, reverse=True)
+            menu = QMenu(self)
+            for manifest in manifests[:10]:
+                try:
+                    name = json.loads(manifest.read_text(encoding="utf-8")).get("name", manifest.parent.name)
+                except (OSError, ValueError, AttributeError):
+                    name = manifest.parent.name
+                action = menu.addAction(str(name))
+                action.triggered.connect(lambda _checked=False, folder=manifest.parent: self._open_folder(str(folder)))
+            if not manifests:
+                self.status.setText("No projects yet. Create a New project first.")
+            else:
+                menu.exec(self.cursor().pos())
+        except OSError as exc:
+            self.status.setText(str(exc))
 
     def _open_folder(self, folder: str) -> None:
         if self._jobs:
             self.status.setText("Finish/cancel batch jobs before switching projects.")
             return
-        self.project = ProjectStore(Path(folder))
+        try:
+            project = ProjectStore(Path(folder))
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            self.status.setText(f"Cannot open project: {exc}")
+            return
+        self.project = project
         self.active_id = None
+        self._active_document = None
         self._refresh()
 
     def _add(self) -> None:
@@ -83,6 +137,9 @@ class ProjectsPanel(QWidget):
         return self.project.items[row] if row < len(self.project.items) else None
 
     def _relink(self) -> None:
+        if self._jobs:
+            self.status.setText("Finish/cancel batch jobs before relinking media.")
+            return
         item = self._selected_item()
         if item is None or self.project is None:
             return
@@ -165,13 +222,14 @@ class ProjectsPanel(QWidget):
             self.status.setText(item.error or "File is not yet processed.")
             return
         self.active_id = item.id
-        self.openRequested.emit(item.source, self.project.review(item.id))
+        self._active_document = self.project.review(item.id)
+        self.openRequested.emit(item.source, self._active_document)
 
     def save_active_review(self, document) -> None:
         if self.project is None or self.active_id is None or document is None:
             return
         item = self.project.get(self.active_id)
-        if Path(document.raw_metadata.get("source", "")).resolve() != Path(item.source).resolve():
+        if document is not self._active_document:
             return
         self.project.save_review(self.active_id, document)
 

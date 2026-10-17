@@ -10,9 +10,10 @@ from pathlib import Path
 from .media import ffmpeg_executable
 
 
-def _speaker_turns(output) -> list[dict]:
-    exclusive = getattr(output, "exclusive_speaker_diarization", None)
-    annotation = exclusive if exclusive is not None else output.speaker_diarization
+def _speaker_turns(output, *, exclusive: bool = False, label_map: dict | None = None) -> list[dict]:
+    annotation = getattr(output, "exclusive_speaker_diarization", None) if exclusive else None
+    if annotation is None:
+        annotation = output.speaker_diarization
     raw = []
     for segment, _track, label in annotation.itertracks(yield_label=True):
         start, end = float(segment.start), float(segment.end)
@@ -20,7 +21,8 @@ def _speaker_turns(output) -> list[dict]:
             continue
         raw.append((start, end, str(label)))
     raw.sort(key=lambda p: (p[0], p[1]))
-    label_map = {}
+    if label_map is None:
+        label_map = {}
     for _, _, label in raw:
         if label not in label_map:
             label_map[label] = f"Speaker {len(label_map)+1}"
@@ -33,6 +35,7 @@ def _speaker_turns(output) -> list[dict]:
         turns.append({
             "start": start, "end": end,
             "speaker_id": label_map[label],
+            "cluster_id": label,
             # Community-1 clustering is not a verified identity or probability.
             "confidence": None,
             "overlap": overlap,
@@ -67,12 +70,15 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> 
         if process.returncode:
             raise RuntimeError("Could not decode audio for diarization: " + process.stderr.decode(errors="replace")[-400:])
         output = pipeline(str(wav))
-    turns = _speaker_turns(output)
+    labels = {}
+    turns = _speaker_turns(output, label_map=labels)
+    exclusive_turns = _speaker_turns(output, exclusive=True, label_map=labels)
     return {
         "kind": "diarization", "source": str(media),
         "model": "pyannote-community-1",
         "speakers": sorted({t["speaker_id"] for t in turns}),
         "turns": turns,
+        "exclusive_turns": exclusive_turns,
     }
 
 

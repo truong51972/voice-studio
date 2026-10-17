@@ -35,3 +35,27 @@ def test_conservative_timestamp_attribution_leaves_ambiguous_unassigned():
     assert assigned[0]["speaker_id"] == "Speaker 1"
     assert assigned[1].get("speaker_id") is None
     assert segments[0].get("speaker_id") is None
+
+
+def test_original_overlap_and_exclusive_tracks_share_cluster_mapping():
+    class Annotation:
+        def __init__(self, rows):
+            self.rows = rows
+        def itertracks(self, yield_label=False):
+            return iter((SimpleNamespace(start=start, end=end), "-", label)
+                        for start, end, label in self.rows)
+    output = SimpleNamespace(
+        speaker_diarization=Annotation([(0., 3., "a"), (2., 4., "b")]),
+        # The exclusive result can have a different first-appearance order.
+        exclusive_speaker_diarization=Annotation([(0., 2., "b"), (2., 4., "a")]),
+    )
+    labels = {}
+    original = _speaker_turns(output, label_map=labels)
+    exclusive = _speaker_turns(output, exclusive=True, label_map=labels)
+    assert all(turn["overlap"] for turn in original)
+    assert all(not turn["overlap"] for turn in exclusive)
+    assert original[0]["cluster_id"] == "a"
+    assert original[0]["speaker_id"] == exclusive[1]["speaker_id"]
+    assert original[1]["speaker_id"] == exclusive[0]["speaker_id"]
+    proposal = attribute_segments([{"start": 0, "end": 1}], exclusive)
+    assert proposal[0]["speaker_id"] == "Speaker 2"

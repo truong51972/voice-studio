@@ -202,8 +202,16 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
             chọn profile CAM++ hoặc ERes2NetV2 rồi bấm Analyze.</p>
             <p>Nhấp timeline hoặc bảng Segments để phát từ vị trí tương ứng.
             Độ tương đồng không phải xác suất xác minh danh tính.</p>
-            <p>Dữ liệu xử lý cục bộ. STT, diarization và batch project
-            chưa được triển khai trong phiên bản này.</p>
+            <p>Projects: New/Open/Recent lưu metadata, kết quả và chỉnh sửa trong
+            thư mục .projects cạnh ứng dụng (repo root khi chạy từ source).
+            Thư mục ứng dụng phải có quyền ghi; không tự chuyển sang AppData.</p>
+            <p>Media gốc là liên kết ngoài, không tự sao chép. Sao lưu cả .projects
+            và media gốc trước khi di chuyển/nâng cấp. Thoát app không xóa project.</p>
+            <p>STT, chỉnh transcript và xuất báo cáo có trong các inspector tương ứng.
+            Diarization dùng Community-1 cài riêng trên máy; giữ cả overlap và
+            exclusive turns. Không tự tải model hoặc yêu cầu token.</p>
+            <p>Refactor #26 đang triển khai: timeline nhiều nguồn và chọn reference
+            trực tiếp từ nguồn chưa có trong GUI hiện tại.</p>
             """
         )
         layout.addWidget(browser)

@@ -85,6 +85,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--with-stt", action="store_true", help="Bundle optional offline faster-whisper runtime")
     args = parser.parse_args()
+    _protect_portable_projects(ROOT / "dist" / APP_NAME)
     _verify_models()
     _verify_assets()
 
@@ -209,6 +210,14 @@ def main() -> None:
         print(f"[ok] Windows build hoàn tất: {executable}")
     else:
         print(f"[ok] Build hoàn tất cho {system}: {executable}")
+
+
+def _protect_portable_projects(distribution: Path) -> None:
+    if (distribution / ".projects").exists():
+        raise SystemExit(
+            f"Refusing to overwrite a portable installation containing {distribution / '.projects'}. "
+            "Back up/move the entire .projects folder outside dist before rebuilding."
+        )
 
 
 if __name__ == "__main__":

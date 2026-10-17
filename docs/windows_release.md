@@ -28,6 +28,14 @@ voice_studio.diagnostics\` on a Python-enabled dev environment.
 
 ### Manual release sign-off (not yet achieved by CI)
 
+Projects use `.projects/` beside `voice-studio.exe`, independently of `_internal/`
+and the launch working directory. Test actual onedir behavior and a read-only
+install; no AppData fallback is permitted. Back up/move `.projects/` before
+rebuilding an existing distribution (the build refuses to overwrite it), and
+restore it beside a freshly extracted executable when upgrading. Keep original
+external media or relink their new locations. Release ZIPs exclude `.projects/`.
+See [portable project backup/recovery](projects.md).
+
 - Verify actual audio/video playback, seek, microphone recording and
   still-responsive UI after >60 minutes.
 - Install Whisper Small through Model Manager, transcribe a consented
