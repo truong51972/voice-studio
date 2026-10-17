@@ -15,6 +15,10 @@ def main() -> None:
     installed ``voice-studio`` console script and ``python -m voice_studio``.
     """
     mp.freeze_support()
+    if "--diagnostics" in sys.argv:
+        from voice_studio.diagnostics import main as diagnostics_main
+        diagnostics_main()
+        return
     smoke_test = "--smoke-test" in sys.argv
     if smoke_test:
         # CI/build hosts may not expose a desktop display. Qt can still construct
@@ -38,6 +42,13 @@ def main() -> None:
     if smoke_test:
         import imageio_ffmpeg  # noqa: F401
         import PySide6  # noqa: F401
+        # Optional STT runtime sanity test, without model downloads/inference.
+        try:
+            import faster_whisper  # noqa: F401
+            import ctranslate2  # noqa: F401
+            print("[smoke] Optional STT CPU runtime imports: OK")
+        except ImportError:
+            print("[smoke] Optional STT runtime not bundled (Locator-only build)")
 
         from voice_studio.embedding import SpeakerEmbedder
         from voice_studio.media import ffmpeg_executable

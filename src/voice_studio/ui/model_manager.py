@@ -62,7 +62,10 @@ class ModelManagerDialog(QDialog):
             f"License: {entry.license}\n"
             f"Status: {'Installed · verified locally' if ready else 'Not installed / incomplete'}"
         )
-        self.remove_button.setEnabled(ready)
+        import sys
+        self.remove_button.setEnabled(
+            ready and not (getattr(sys, "frozen", False) and entry.task == "locator")
+        )
         self.status.setText("CPU preflight: " + ("; ".join(preflight(entry)) or "Ready"))
 
     def _install(self) -> None:

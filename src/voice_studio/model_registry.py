@@ -204,6 +204,8 @@ def _verify_tree(directory: Path, model: ModelDescriptor) -> bool:
 def uninstall(model: ModelDescriptor, root: Path | None = None) -> None:
     path = model_path(model, root)
     if model.task == "locator":
+        if getattr(sys, "frozen", False):
+            raise RuntimeError("Bundled Locator model cannot be removed from a packaged app")
         path.unlink(missing_ok=True)
     elif path.is_dir():
         shutil.rmtree(path)

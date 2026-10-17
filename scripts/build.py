@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import os
 import platform
@@ -58,8 +59,12 @@ def _is_wsl() -> bool:
 
 def _verify_models() -> None:
     from voice_studio.profiles import INFERENCE_PROFILES
+    from voice_studio.model_registry import get_model, installed
 
-    missing = [profile.model_path for profile in INFERENCE_PROFILES.values() if not profile.model_path.is_file()]
+    missing = [
+        profile.model_path for key, profile in INFERENCE_PROFILES.items()
+        if not installed(get_model("locator-" + key))
+    ]
     if missing:
         pretty = "\n  - ".join(str(path) for path in missing)
         raise SystemExit("Thiếu model. Chạy `poe models` trước khi build.\n  - " + pretty)
@@ -77,6 +82,9 @@ def _verify_assets() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--with-stt", action="store_true", help="Bundle optional offline faster-whisper runtime")
+    args = parser.parse_args()
     _verify_models()
     _verify_assets()
 
@@ -106,6 +114,18 @@ def main() -> None:
         "--hidden-import",
         "PySide6.QtMultimediaWidgets",
     ]
+
+    if args.with_stt:
+        required = ("faster_whisper", "ctranslate2", "huggingface_hub")
+        missing_backends = [name for name in required if importlib.util.find_spec(name) is None]
+        if missing_backends:
+            raise SystemExit(
+                "Install optional STT runtime before building: uv sync --dev --extra stt; "
+                + ", ".join(missing_backends)
+            )
+        for name in required:
+            cmd += ["--collect-all", name]
+        print("[build] Including offline STT runtime; no speech models are shipped.")
 
     bundled_ort_source: Path | None = None
     if os.name == "nt":
