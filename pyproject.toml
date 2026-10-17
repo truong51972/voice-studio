@@ -22,7 +22,7 @@ dependencies = [
 
 [project.optional-dependencies]
 stt = ["faster-whisper>=1.1,<2", "huggingface-hub>=0.26,<2"]
-diarization = ["pyannote.audio>=4,<5"]
+diarization = ["pyannote.audio>=4,<5; sys_platform != 'darwin' or platform_machine != 'x86_64'"]
 
 [project.scripts]
 voice-studio = "voice_studio.app:main"
