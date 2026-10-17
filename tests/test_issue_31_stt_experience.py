@@ -111,7 +111,7 @@ def test_subtitle_lookup_is_source_relative_with_overlaps_and_boundaries():
     assert index.at(2.).text == "Chào cả lớp"
     document.split("first", 1.5)
     index.set_entries(document.edited)
-    assert index.at(1.5).text == "" or index.at(1.5).id == "overlap"
+    assert index.at(1.5) is None  # Blank split second half must not render.
 
 
 def test_stt_result_action_exports_reviewed_text_with_vietnamese(tmp_path, monkeypatch):
