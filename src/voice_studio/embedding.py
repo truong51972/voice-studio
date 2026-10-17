@@ -13,7 +13,7 @@ class SpeakerEmbedder:
     def __init__(self, model_path: Path, num_threads: int = 2) -> None:
         if not model_path.is_file():
             raise FileNotFoundError(
-                f"Không tìm thấy speaker model: {model_path}. Chạy `poe models` trước."
+                f"Không tìm thấy speaker model: {model_path}. Mở Settings → Models để cài đặt model."
             )
 
         # Must happen before importing sherpa_onnx on Windows. It prevents an old
@@ -25,7 +25,7 @@ class SpeakerEmbedder:
             import sherpa_onnx
         except ImportError as exc:
             raise RuntimeError(
-                "Thiếu dependency sherpa-onnx. Chạy `uv sync --dev` trước."
+                "Thiếu runtime sherpa-onnx. Hãy sửa hoặc cài lại ứng dụng."
             ) from exc
 
         try:

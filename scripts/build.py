@@ -57,19 +57,6 @@ def _is_wsl() -> bool:
     return os.name != "nt" and ("microsoft" in release or "wsl" in release)
 
 
-def _verify_models() -> None:
-    from voice_studio.profiles import INFERENCE_PROFILES
-    from voice_studio.model_registry import get_model, installed
-
-    missing = [
-        profile.model_path for key, profile in INFERENCE_PROFILES.items()
-        if not installed(get_model("locator-" + key))
-    ]
-    if missing:
-        pretty = "\n  - ".join(str(path) for path in missing)
-        raise SystemExit("Thiếu model. Chạy `poe models` trước khi build.\n  - " + pretty)
-
-
 def _verify_assets() -> None:
     if not APP_ICON.is_file():
         raise SystemExit(f"Thiếu application icon asset:\n  - {APP_ICON}")
@@ -84,7 +71,6 @@ def _verify_assets() -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.parse_args()
-    _verify_models()
     _verify_assets()
 
     if not APP_ENTRYPOINT.is_file():
@@ -101,13 +87,13 @@ def main() -> None:
         "--paths",
         str(ROOT / "src"),
         "--add-data",
-        f"{ROOT / 'models'}{sep}models",
-        "--add-data",
         f"{APP_ICON}{sep}assets",
         "--add-data",
         f"{ROOT / 'configs' / 'models'}{sep}voice_studio/configs/models",
         "--collect-all",
         "sherpa_onnx",
+        "--collect-all",
+        "voice_studio",
         "--collect-all",
         "imageio_ffmpeg",
         "--hidden-import",

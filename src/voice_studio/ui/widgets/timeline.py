@@ -20,10 +20,18 @@ class EditorTimelineWidget(QWidget):
         self._bundle: AnalysisBundle | None = None
         self._duration = 0.0
         self._position_seconds = 0.0
+        self._view_start = 0.0
+        self._view_end = None
+        self.selection = None
+        self._range_anchor = None
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setToolTip("Click to seek · Shift-click twice to select a source range · Ctrl-wheel zoom · Wheel pan")
         self.setMinimumHeight(205)
 
     def set_bundle(self, bundle: AnalysisBundle | None) -> None:
         self._bundle = bundle
+        self.fit()
+        self.selection = None
         if bundle is not None:
             self._duration = max(self._duration, bundle.duration)
         self.update()
@@ -44,6 +52,37 @@ class EditorTimelineWidget(QWidget):
             return max(self._bundle.duration, self._duration, 0.001)
         return max(self._duration, 0.001)
 
+    def _view_bounds(self):
+        duration = self._duration_seconds()
+        end = min(duration, self._view_end) if self._view_end is not None else duration
+        return min(self._view_start, max(0, end - .001)), max(.001, end)
+
+    def fit(self):
+        self._view_start = 0.0
+        self._view_end = None
+        self.update()
+
+    def zoom(self, factor):
+        start, end = self._view_bounds()
+        duration = self._duration_seconds()
+        span = min(duration, max(.25, (end - start) / factor))
+        center = min(end, max(start, self._position_seconds))
+        self._view_start = max(0, min(duration - span, center - span / 2))
+        self._view_end = self._view_start + span
+        self.update()
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.zoom(1.5 if event.angleDelta().y() > 0 else 1 / 1.5)
+        else:
+            start, end = self._view_bounds()
+            span = end - start
+            delta = -event.angleDelta().y() / 120 * span * .1
+            self._view_start = max(0, min(self._duration_seconds() - span, start + delta))
+            self._view_end = self._view_start + span
+            self.update()
+        event.accept()
+
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt API
         super().paintEvent(event)
         painter = QPainter(self)
@@ -51,7 +90,8 @@ class EditorTimelineWidget(QWidget):
         painter.fillRect(self.rect(), QColor("#111318"))
 
         rect = self._track_rect()
-        duration = self._duration_seconds()
+        view_start, view_end = self._view_bounds()
+        duration = view_end - view_start
 
         painter.setPen(QColor("#828995"))
         ticks = 6
@@ -59,7 +99,7 @@ class EditorTimelineWidget(QWidget):
             ratio = index / ticks
             x = rect.left() + int(rect.width() * ratio)
             painter.drawLine(x, 18, x, 28)
-            label = _fmt_time(duration * ratio)
+            label = _fmt_time(view_start + duration * ratio)
             painter.drawText(x - 22, 14, 58, 14, Qt.AlignmentFlag.AlignLeft, label)
 
         results = self._bundle.results if self._bundle is not None else []
@@ -93,8 +133,10 @@ class EditorTimelineWidget(QWidget):
             )
 
             for segment in result.segments:
-                x1 = rect.left() + int(rect.width() * segment.start / duration)
-                x2 = rect.left() + int(rect.width() * segment.end / duration)
+                if segment.end < view_start or segment.start > view_end:
+                    continue
+                x1 = rect.left() + int(rect.width() * (max(view_start, segment.start) - view_start) / duration)
+                x2 = rect.left() + int(rect.width() * (min(view_end, segment.end) - view_start) / duration)
                 clip = lane_rect.adjusted(x1 - rect.left() + 2, 5, x2 - rect.right() - 2, -5)
                 if clip.width() < 5:
                     clip.setWidth(5)
@@ -114,7 +156,7 @@ class EditorTimelineWidget(QWidget):
                         f"{segment.max_score:.2f}",
                     )
 
-        playhead_ratio = min(1.0, max(0.0, self._position_seconds / duration))
+        playhead_ratio = min(1.0, max(0.0, (self._position_seconds - view_start) / duration))
         playhead_x = rect.left() + int(rect.width() * playhead_ratio)
         playhead_pen = QPen(QColor("#ff5d73"))
         playhead_pen.setWidth(2)
@@ -132,6 +174,11 @@ class EditorTimelineWidget(QWidget):
             )
         )
 
+        if self.selection:
+            start, end = self.selection
+            left = rect.left() + int(rect.width() * max(0, min(1, (start - view_start) / duration)))
+            right = rect.left() + int(rect.width() * max(0, min(1, (end - view_start) / duration)))
+            painter.fillRect(left, rect.top(), max(1, right - left), rect.height(), QColor(56, 212, 220, 55))
         if self._bundle is None:
             painter.setPen(QColor("#777f8b"))
             painter.drawText(
@@ -145,6 +192,16 @@ class EditorTimelineWidget(QWidget):
         if rect.width() <= 0 or event.position().x() < rect.left():
             return
         ratio = (event.position().x() - rect.left()) / rect.width()
-        seconds = max(0.0, min(self._duration_seconds(), ratio * self._duration_seconds()))
-        self.seekRequested.emit(seconds)
+        start, end = self._view_bounds()
+        seconds = max(start, min(end, start + ratio * (end - start)))
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+            if self._range_anchor is None:
+                self._range_anchor = seconds
+                self.selection = None
+            else:
+                self.selection = tuple(sorted((self._range_anchor, seconds)))
+                self._range_anchor = None
+            self.update()
+        else:
+            self.seekRequested.emit(seconds)
         super().mousePressEvent(event)

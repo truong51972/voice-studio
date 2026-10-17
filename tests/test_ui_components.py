@@ -51,7 +51,7 @@ def test_one_shared_qt_player_and_inspector_layout():
         assert window.workspace_splitter.orientation() == Qt.Orientation.Horizontal
         assert window.analysis_page.findChildren(QScrollArea) == []
         assert [window.inspector_tabs.tabText(i) for i in range(3)] == [
-            "Speakers", "Analysis", "Segments",
+            "Speakers", "STT", "Results",
         ]
         assert window.video_widget.overlay.parent() is window.video_widget
         assert window.windowTitle().startswith("Voice Studio")

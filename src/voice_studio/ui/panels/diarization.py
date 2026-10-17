@@ -15,6 +15,7 @@ from ...task_runtime import TaskManager, TaskRequest
 class DiarizationPanel(QWidget):
     seekRequested = Signal(float)
     turnsReady = Signal(object)
+    modelsRequested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -26,9 +27,12 @@ class DiarizationPanel(QWidget):
         layout.addWidget(QLabel("Optional local Community-1 · anonymous speaker clustering"))
         choose = QHBoxLayout()
         self.model_folder = QLineEdit()
+        self.model_folder.setReadOnly(True)
+        self.refresh_models()
         self.model_folder.setPlaceholderText("Local Community-1 directory (config.yaml)")
         browse = QPushButton("Browse")
-        browse.clicked.connect(self._browse)
+        browse.setText("Settings → Models…")
+        browse.clicked.connect(lambda: self.modelsRequested.emit("pyannote-community-1"))
         choose.addWidget(self.model_folder, 1)
         choose.addWidget(browse)
         layout.addLayout(choose)
@@ -66,6 +70,11 @@ class DiarizationPanel(QWidget):
         self.table.setRowCount(0)
         self.apply_button.setEnabled(False)
 
+    def refresh_models(self):
+        from ...model_service import ModelService
+        from ...model_catalog import default_model
+        self.model_folder.setText(str(ModelService().path(default_model("diarization"))))
+
     def _browse(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Community-1 local model directory")
         if path:
@@ -77,10 +86,15 @@ class DiarizationPanel(QWidget):
         if not self._source or not Path(self._source).is_file():
             self.status.setText("Open a media file first.")
             return
-        model_dir = Path(self.model_folder.text().strip())
-        if not model_dir.is_dir() or not (model_dir / "config.yaml").is_file():
-            self.status.setText("Choose a complete locally installed Community-1 folder.")
+        from ...model_service import ModelService
+        from ...model_catalog import default_model
+        model = default_model("diarization")
+        service = ModelService()
+        errors = service.preflight(model)
+        if errors:
+            self.status.setText("; ".join(errors))
             return
+        model_dir = service.path(model)
         self._job_id = self._manager.submit(TaskRequest(
             kind="diarization",
             inputs={"target_path": self._source, "model_directory": str(model_dir)},

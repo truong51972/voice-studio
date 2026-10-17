@@ -147,9 +147,28 @@ class TaskManager:
         self.root.mkdir(parents=True, exist_ok=True)
         self._context = mp.get_context("spawn")
         self._tasks: dict[str, _Task] = {}
+        self._model_leases = {}
+        self._job_models = {}
 
     def submit(self, request: TaskRequest) -> str:
+        model_id = None
+        if request.kind in ("stt", "locator", "diarization"):
+            from .model_catalog import default_model, descriptors
+            from .model_service import ModelService
+            if request.kind == "stt":
+                model_id = request.inputs["options"]["model_id"]
+            elif request.kind == "diarization":
+                model_id = default_model("diarization").id
+            else:
+                model_id = next(m.id for m in descriptors("locator") if m.profile_key == request.inputs["profile"])
+            if model_id not in self._model_leases:
+                from .model_catalog import get_model
+                lease = ModelService().use(get_model(model_id))
+                lease.__enter__()
+                self._model_leases[model_id] = [lease, 0]
+            self._model_leases[model_id][1] += 1
         identifier = uuid.uuid4().hex
+        self._job_models[identifier] = model_id
         folder = self.root / identifier
         folder.mkdir(parents=True)
         self._tasks[identifier] = _Task(identifier, request, folder)
@@ -251,6 +270,13 @@ class TaskManager:
         if task.snapshot.state in ("queued", "running"):
             raise RuntimeError("Cannot delete active task")
         self._tasks.pop(identifier)
+        model_id = self._job_models.pop(identifier, None)
+        if model_id:
+            lease = self._model_leases[model_id]
+            lease[1] -= 1
+            if not lease[1]:
+                lease[0].__exit__(None, None, None)
+                del self._model_leases[model_id]
         shutil.rmtree(task.folder, ignore_errors=True)
 
     def close(self) -> None:

@@ -27,7 +27,7 @@ def pack(distribution: Path, output: Path) -> tuple[Path, Path]:
     if not any(distribution.iterdir()):
         raise ValueError("Refusing to archive an empty build")
     output.parent.mkdir(parents=True, exist_ok=True)
-    files = sorted(p for p in distribution.rglob("*") if p.is_file())
+    files = sorted(p for p in distribution.rglob("*") if p.is_file() and not set(p.relative_to(distribution).parts).intersection({".models", ".settings", ".projects"}))
     # Normalize ZIP entry names/timestamps. Binary reproducibility still
     # depends on the PyInstaller build and frozen native dependencies.
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:

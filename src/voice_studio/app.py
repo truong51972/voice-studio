@@ -21,6 +21,11 @@ def main() -> None:
         sys.argv.remove("--diagnostics")
         diagnostics_main()
         return
+    if "--model-probe" in sys.argv:
+        from voice_studio.model_backends import main as probe_main
+        sys.argv.remove("--model-probe")
+        probe_main()
+        return
     smoke_test = "--smoke-test" in sys.argv
     if smoke_test:
         # CI/build hosts may not expose a desktop display. Qt can still construct
@@ -66,13 +71,15 @@ def main() -> None:
         if ort_path:
             print(f"[smoke] Bundled ONNX Runtime: {ort_path}")
 
-        for profile in INFERENCE_PROFILES.values():
-            embedder = SpeakerEmbedder(profile.model_path, num_threads=1)
-            print(f"[smoke] {profile.label}: extractor initialized, dim={embedder.dim}")
+        # Models are user data and are intentionally absent from a fresh bundle.
+        from voice_studio.model_catalog import descriptors
+        if len(descriptors()) < 3:
+            raise RuntimeError("Packaged model catalog is incomplete")
+        print("[smoke] Bundled catalogs available; no weights downloaded or required.")
 
         ffmpeg_path = ffmpeg_executable()
         print(f"[smoke] Bundled FFmpeg: {ffmpeg_path}")
-        print("[smoke] PySide6 desktop UI + FFmpeg + all speaker profiles: OK")
+        print("[smoke] PySide6 desktop UI + FFmpeg + production runtimes + catalogs: OK")
         window.close()
         qt_app.quit()
         return

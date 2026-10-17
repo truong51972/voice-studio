@@ -50,12 +50,8 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> 
     if pipeline is None:
         if not model_dir.is_dir() or not (model_dir / "config.yaml").is_file():
             raise FileNotFoundError("Install a complete Community-1 model folder locally first.")
-        os.environ["HF_HUB_OFFLINE"] = "1"
-        try:
-            from pyannote.audio import Pipeline
-        except ImportError as exc:
-            raise RuntimeError("Diarization runtime is missing. Repair the application installation.") from exc
-        pipeline = Pipeline.from_pretrained(str(model_dir))
+        from .model_backends import load_community
+        pipeline = load_community(model_dir)
     # Local temporary normalized waveform: no large PCM arrays over IPC.
     with tempfile.TemporaryDirectory(prefix="voice-studio-diar-") as work:
         wav = Path(work) / "audio.wav"
@@ -67,7 +63,12 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> 
         process = subprocess.run(command, capture_output=True, timeout=10800)
         if process.returncode:
             raise RuntimeError("Could not decode audio for diarization: " + process.stderr.decode(errors="replace")[-400:])
-        output = pipeline(str(wav))
+        # FFmpeg already normalizes PCM; SoundFile avoids a second native decoder
+        # dependency in portable builds. pyannote consumes the same waveform.
+        import soundfile as sf
+        import torch
+        waveform, rate = sf.read(wav, dtype="float32", always_2d=True)
+        output = pipeline({"waveform": torch.from_numpy(waveform.T.copy()), "sample_rate": rate})
     turns = _speaker_turns(output)
     return {
         "kind": "diarization", "source": str(media),

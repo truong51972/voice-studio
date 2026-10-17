@@ -6,17 +6,18 @@ import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl, Slot
-from PySide6.QtGui import QIcon
+from PySide6.QtCore import Qt, QUrl, Slot, QTimer, QEvent, QSettings
+from PySide6.QtGui import QIcon, QAction, QKeySequence
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QLabel, QMainWindow, QMessageBox,
                                QPushButton, QSlider, QSplitter, QTabWidget,
-                               QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget)
+                               QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget, QDialog, QInputDialog, QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QMenu, QToolButton)
 
 from ..pipeline import AnalysisBundle
 from ..profiles import get_inference_profile
 from .model_manager import ModelManagerDialog
+from .actions import EditorActionsMixin
 from .panels.locator import LocatorPanelsMixin
 from .panels.stt import STTPanel
 from .panels.projects import ProjectsPanel
@@ -29,7 +30,7 @@ from .widgets.media_player import PreviewVideoWidget
 from .widgets.timeline import EditorTimelineWidget
 from .workers import AnalysisWorker
 
-class MainWindow(LocatorPanelsMixin, QMainWindow):
+class MainWindow(EditorActionsMixin, LocatorPanelsMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Voice Studio · Editor")
@@ -49,12 +50,19 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self._audio_output = QAudioOutput(self)
         self._player.setAudioOutput(self._audio_output)
 
-        tabs = QTabWidget()
         self.analysis_page = self._build_analysis_tab()
-        tabs.addTab(self.analysis_page, "🎬 Workspace")
-        tabs.addTab(self._build_help_tab(), "ℹ️ Help")
-        tabs.addTab(self._build_privacy_tab(), "🛡️ Quyền riêng tư")
-        self.setCentralWidget(tabs)
+        self.setCentralWidget(self.analysis_page)
+        self._build_actions()
+        self._state_timer = QTimer(self)
+        self._state_timer.setInterval(150)
+        self._state_timer.timeout.connect(self._update_actions)
+        self._state_timer.start()
+        self.stt_panel.modelsRequested.connect(self._open_models)
+        self.diarization_panel.modelsRequested.connect(self._open_models)
+        self.projects_panel.projectChanged.connect(self._update_actions)
+        self.stt_panel.resultReady.connect(self._store_stt_result)
+        self._restore_layout()
+        self._update_actions()
 
     def _build_analysis_tab(self) -> QWidget:
         page = QWidget()
@@ -79,19 +87,19 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
 
         self.models_button = QPushButton("Models")
         self.models_button.clicked.connect(self._open_models)
-        self.cancel_button = QPushButton("Cancel")
+        self.models_button.hide()
+        choose_target.hide()
+        self.target_mode.hide()
+        self.cancel_button = QToolButton()
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self._cancel_analysis)
-        self.analyze_button = QPushButton("Analyze")
+        self.analyze_button = QToolButton()
         self.analyze_button.setObjectName("primaryButton")
         self.analyze_button.clicked.connect(self._start_analysis)
 
         toolbar_layout.addWidget(title)
         toolbar_layout.addSpacing(14)
-        toolbar_layout.addWidget(self.target_mode)
-        toolbar_layout.addWidget(choose_target)
         toolbar_layout.addWidget(self.target_label, 1)
-        toolbar_layout.addWidget(self.models_button)
         toolbar_layout.addWidget(self.analyze_button)
         toolbar_layout.addWidget(self.cancel_button)
         root.addWidget(toolbar)
@@ -137,28 +145,36 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.inspector_tabs = QTabWidget()
         self.inspector_tabs.setMinimumWidth(340)
         self.inspector_tabs.setMaximumWidth(460)
-        self.inspector_tabs.addTab(self._build_speakers_panel(), "Speakers")
-        self.inspector_tabs.addTab(self._build_analysis_panel(), "Analysis")
-        self.inspector_tabs.addTab(self._build_segments_panel(), "Segments")
+        self.speakers_page = self._build_speakers_panel()
+        self.analysis_settings_page = self._build_analysis_panel()
+        self.results_page = self._build_segments_panel()
+        self.inspector_tabs.addTab(self.speakers_page, "Speakers")
         self.stt_panel = STTPanel(self)
         self.stt_panel.seekRequested.connect(self._seek_to_seconds)
         self.inspector_tabs.addTab(self.stt_panel, "STT")
         self.projects_panel = ProjectsPanel(self.stt_panel, self)
         self.projects_panel.openRequested.connect(self._open_project_media)
-        self.inspector_tabs.addTab(self.projects_panel, "Projects")
+
         self.diarization_panel = DiarizationPanel(self)
         self.diarization_panel.seekRequested.connect(self._seek_to_seconds)
         self.diarization_panel.turnsReady.connect(self.stt_panel.apply_diarization)
-        self.inspector_tabs.addTab(self.diarization_panel, "Diarization")
+
         self.summary_panel = SummaryPanel(self.stt_panel, self)
-        self.inspector_tabs.addTab(self.summary_panel, "Summary")
+        self.inspector_tabs.addTab(self.results_page, "Results")
+        self.analysis_settings_page.hide()
+        self.diarization_panel.hide()
+        self.summary_panel.hide()
+        self.projects_panel.setMinimumWidth(235)
+        self.projects_panel.setMaximumWidth(380)
+        self.workspace_splitter.addWidget(self.projects_panel)
         self.stt_panel.documentChanged.connect(self._save_project_review)
 
         self.workspace_splitter.addWidget(preview_panel)
         self.workspace_splitter.addWidget(self.inspector_tabs)
-        self.workspace_splitter.setStretchFactor(0, 1)
-        self.workspace_splitter.setStretchFactor(1, 0)
-        self.workspace_splitter.setSizes([960, 390])
+        self.workspace_splitter.setStretchFactor(0, 0)
+        self.workspace_splitter.setStretchFactor(1, 1)
+        self.workspace_splitter.setStretchFactor(2, 0)
+        self.workspace_splitter.setSizes([260, 760, 350])
 
         timeline_panel = QFrame()
         timeline_panel.setObjectName("panel")
@@ -168,7 +184,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
 
         timeline_header = QHBoxLayout()
         timeline_header.addWidget(QLabel("<b>Speaker timeline</b>"))
-        self.summary_label = QLabel("Open a target, add reference voices, then Analyze.")
+        self.summary_label = QLabel("File → Import Media to begin · timeline uses source-local time.")
         self.summary_label.setStyleSheet("color: #9da4ae;")
         timeline_header.addSpacing(12)
         timeline_header.addWidget(self.summary_label, 1)
@@ -202,8 +218,10 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
             chọn profile CAM++ hoặc ERes2NetV2 rồi bấm Analyze.</p>
             <p>Nhấp timeline hoặc bảng Segments để phát từ vị trí tương ứng.
             Độ tương đồng không phải xác suất xác minh danh tính.</p>
-            <p>Dữ liệu xử lý cục bộ. STT, diarization và batch project
-            chưa được triển khai trong phiên bản này.</p>
+            <p>File → New/Open creates or opens a portable project. Import Media adds sources.
+            Process runs transcription, speaker matching, local diarization or summaries.
+            Settings → Models installs, imports, verifies and tests model readiness.</p>
+            <p>Help → Shortcuts lists keyboard commands. Local summaries use an explicitly selected localhost Ollama model.</p>
             """
         )
         layout.addWidget(browser)
@@ -231,9 +249,12 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         layout.addWidget(browser)
         return page
 
-    @Slot()
-    def _open_models(self) -> None:
-        dialog = ModelManagerDialog(self)
+    def _open_models(self, model_id=None):
+        if not isinstance(model_id, str):
+            model_id = None
+        dialog = ModelManagerDialog(self, model_id=model_id)
+        dialog.modelsChanged.connect(self.stt_panel.refresh_models)
+        dialog.modelsChanged.connect(self.diarization_panel.refresh_models)
         dialog.exec()
 
     @Slot(str, object)
@@ -243,8 +264,13 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.stt_panel.set_media(source)
         self.diarization_panel.set_media(source)
         self.summary_panel.reset()
-        self.stt_panel.load_document(document)
+        if document is not None:
+            self.stt_panel.load_document(document)
         self._player.setSource(QUrl.fromLocalFile(source))
+        self._bundle = None
+        self.timeline.set_bundle(None)
+        self.video_widget.overlay.set_bundle(None)
+        self.segment_table.setRowCount(0)
 
     @Slot()
     def _save_project_review(self) -> None:
@@ -293,8 +319,16 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
             QMessageBox.information(self, "Chưa có target", "Hãy open video/audio target trước.")
             return
 
+        from ..model_catalog import descriptors
+        from ..model_service import ModelService
+        model = next(m for m in descriptors("locator") if m.profile_key == self.profile.currentData())
+        errors = ModelService().preflight(model)
+        if errors:
+            self.preview_status.setText("; ".join(errors))
+            self._open_models(model.id)
+            return
         references = [reference.value() for reference in self.reference_inputs]
-        is_video = self.target_mode.currentData() == "video"
+        is_video = Path(self._target_path).suffix.lower() in (".mp4", ".mov", ".mkv", ".avi", ".webm")
         target_audio = None if is_video else self._target_path
         target_video = self._target_path if is_video else None
         threshold = self.threshold.value()
@@ -417,6 +451,9 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self._seek_to_seconds(seconds)
 
     def closeEvent(self, event):
+        self._save_layout()
+        self._state_timer.stop()
+        self.projects_panel.cancel()
         self.stt_panel.cancel()
         self.stt_panel._manager.close()
         self.projects_panel._timer.stop()

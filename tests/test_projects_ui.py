@@ -8,7 +8,7 @@ def test_projects_panel_with_existing_player_and_stt_options(tmp_path):
     window = build_app()
     try:
         assert isinstance(window.projects_panel, ProjectsPanel)
-        assert window.inspector_tabs.tabText(4) == "Projects"
+        assert window.workspace_splitter.widget(0) is window.projects_panel
         window.projects_panel._open_folder(str(tmp_path / "project"))
         assert window.projects_panel.project is not None
         assert window.projects_panel._options()["model_id"] == "whisper-small"

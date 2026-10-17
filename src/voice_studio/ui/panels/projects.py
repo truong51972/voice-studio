@@ -18,6 +18,7 @@ from ...task_runtime import TaskManager, TaskRequest
 
 class ProjectsPanel(QWidget):
     openRequested = Signal(str, object)
+    projectChanged = Signal()
 
     def __init__(self, stt_panel, parent=None):
         super().__init__(parent)
@@ -28,18 +29,15 @@ class ProjectsPanel(QWidget):
         self._jobs: dict[str, str] = {}
         layout = QVBoxLayout(self)
         buttons = QHBoxLayout()
-        for label, callback in (
-            ("Open project", self._open),
-            ("Add media", self._add),
-            ("Relink", self._relink),
-            ("Run pending", self._run),
-            ("Export", self._export),
-        ):
-            button = QPushButton(label)
-            button.clicked.connect(callback)
-            buttons.addWidget(button)
+        add = QPushButton("+")
+        add.setToolTip("Import Media (Ctrl+I)")
+        self.add_button = add
+        add.clicked.connect(self._add)
+        buttons.addWidget(QLabel("Sources"))
+        buttons.addStretch()
+        buttons.addWidget(add)
         layout.addLayout(buttons)
-        self.status = QLabel("Choose a project folder; files remain local.")
+        self.status = QLabel("File → New / Open, or Import Media to begin.")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
         self.table = QTableWidget(0, 3)
@@ -63,6 +61,7 @@ class ProjectsPanel(QWidget):
         self.project = ProjectStore(Path(folder))
         self.active_id = None
         self._refresh()
+        self.projectChanged.emit()
 
     def _add(self) -> None:
         if self.project is None or self._jobs:
@@ -75,6 +74,7 @@ class ProjectsPanel(QWidget):
         if paths:
             self.project.add(paths)
             self._refresh()
+            self.projectChanged.emit()
 
     def _selected_item(self):
         if self.project is None or self.table.currentRow() < 0:
@@ -92,12 +92,7 @@ class ProjectsPanel(QWidget):
             self._refresh()
 
     def _options(self) -> dict:
-        return asdict(STTOptions(
-            model_id=str(self.stt_panel.model.currentData()),
-            language=str(self.stt_panel.language.currentData()),
-            vad=self.stt_panel.vad.isChecked(),
-            word_timestamps=self.stt_panel.words.isChecked(),
-        ))
+        return self.stt_panel.options()
 
     def _run(self) -> None:
         if self.project is None or self._jobs:
@@ -147,6 +142,7 @@ class ProjectsPanel(QWidget):
     def _refresh(self) -> None:
         if self.project is None:
             return
+        self.table.blockSignals(True)
         self.table.setRowCount(len(self.project.items))
         for row, item in enumerate(self.project.items):
             values = (
@@ -155,17 +151,38 @@ class ProjectsPanel(QWidget):
             )
             for col, value in enumerate(values):
                 self.table.setItem(row, col, QTableWidgetItem(value))
+        self.table.blockSignals(False)
         self.status.setText(f"{self.project.name} · {len(self.project.items)} files")
 
     def _select(self, row: int, _column: int) -> None:
         if self.project is None or row >= len(self.project.items):
             return
         item = self.project.items[row]
-        if item.status != "completed":
-            self.status.setText(item.error or "File is not yet processed.")
+        if not Path(item.source).is_file():
+            self.status.setText(item.error or "Source missing; use Relink.")
             return
         self.active_id = item.id
-        self.openRequested.emit(item.source, self.project.review(item.id))
+        self.openRequested.emit(item.source, self.project.review(item.id) if item.status == "completed" else None)
+
+    def cancel(self):
+        for job_id, item_id in list(self._jobs.items()):
+            self._manager.cancel(job_id)
+            self.project.fail(item_id, "Cancelled by user")
+            self._manager.acknowledge(job_id)
+        self._jobs.clear()
+        self._timer.stop()
+        self._refresh()
+
+    def remove_selected(self):
+        item = self._selected_item()
+        if item is None or self._jobs:
+            return
+        self.project.items.remove(item)
+        self.project.save()
+        if self.active_id == item.id:
+            self.active_id = None
+        self._refresh()
+        self.projectChanged.emit()
 
     def save_active_review(self, document) -> None:
         if self.project is None or self.active_id is None or document is None:

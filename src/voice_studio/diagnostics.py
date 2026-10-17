@@ -14,7 +14,7 @@ from .media import ffmpeg_executable
 CORE_RUNTIMES = (
     "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets", "imageio_ffmpeg",
     "numpy", "scipy", "soundfile", "sherpa_onnx", "faster_whisper", "ctranslate2",
-    "huggingface_hub", "torch", "torchaudio", "torchcodec.decoders", "pyannote.audio",
+    "huggingface_hub", "torch", "torchaudio", "pyannote.audio",
 )
 
 
@@ -66,6 +66,7 @@ def diagnose() -> dict:
         "CPU inference requires a smoke test with real installed models.",
         "CUDA drivers, GPU VRAM and CTranslate2 DLLs are not verified by import checks.",
         "No cloud services are used for diagnostics.",
+        "Diarization consumes FFmpeg-normalized PCM tensors; TorchCodec file decoding is not used.",
     ]
     return checks
 

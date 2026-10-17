@@ -20,6 +20,7 @@ class STTPanel(QWidget):
     seekRequested = Signal(float)
     resultReady = Signal(object)
     documentChanged = Signal()
+    modelsRequested = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -33,14 +34,20 @@ class STTPanel(QWidget):
         self.model = QComboBox()
         for descriptor in descriptors("stt"):
             self.model.addItem(descriptor.label, descriptor.id)
+        from ...model_service import ModelService
+        self.model.setCurrentIndex(max(0, self.model.findData(ModelService().default_id("stt"))))
+        self.models_button = QPushButton("Settings → Models…")
+        self.models_button.clicked.connect(lambda: self.modelsRequested.emit(str(self.model.currentData())))
         settings.addRow("Model", self.model)
+        settings.addRow(self.models_button)
         self.language = QComboBox()
         for label, value in (("Auto detect", "auto"), ("Vietnamese", "vi"), ("English", "en")):
             self.language.addItem(label, value)
         settings.addRow("Language", self.language)
         self.vad = QCheckBox("Speech filtering (VAD)")
-        self.vad.setChecked(True)
+        self.vad.setChecked(get_model(str(self.model.currentData())).inference_defaults.vad)
         self.words = QCheckBox("Word timestamps")
+        self.words.setChecked(get_model(str(self.model.currentData())).inference_defaults.word_timestamps)
         settings.addRow(self.vad)
         settings.addRow(self.words)
         layout.addLayout(settings)
@@ -91,9 +98,24 @@ class STTPanel(QWidget):
         self.table.itemChanged.connect(self._edit_text)
         self.table.cellClicked.connect(self._seek)
         layout.addWidget(self.table, 1)
+        self.refresh_models()
         self._timer = QTimer(self)
         self._timer.setInterval(100)
         self._timer.timeout.connect(self._poll)
+
+    def options(self):
+        model = get_model(str(self.model.currentData()))
+        defaults = model.inference_defaults
+        return {"model_id": model.id, "language": str(self.language.currentData()),
+                "vad": self.vad.isChecked(), "word_timestamps": self.words.isChecked(),
+                "device": "cpu", "compute_type": defaults.compute_type, "chunk_seconds": defaults.chunk_seconds}
+
+    def refresh_models(self):
+        from ...model_service import ModelService
+        service = ModelService()
+        for index in range(self.model.count()):
+            model = get_model(self.model.itemData(index))
+            self.model.setItemText(index, f"{model.label} · {service.status(model).state}")
 
     def set_media(self, source: str | None) -> None:
         if source == self._source:
@@ -113,14 +135,9 @@ class STTPanel(QWidget):
         model_id = str(self.model.currentData())
         blockers = preflight(get_model(model_id), device="cpu")
         if blockers:
-            self.status.setText("; ".join(blockers) + " · Open Models to install.")
+            self.status.setText("; ".join(blockers) + " · Use Settings → Models below.")
             return
-        from ...stt import STTOptions
-        from dataclasses import asdict
-        options = asdict(STTOptions(
-            model_id=model_id, language=str(self.language.currentData()),
-            vad=self.vad.isChecked(), word_timestamps=self.words.isChecked(),
-        ))
+        options = self.options()
         self._job_id = self._manager.submit(TaskRequest(
             kind="stt", inputs={"target_path": self._source, "options": options},
         ))

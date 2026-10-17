@@ -8,7 +8,7 @@ def test_optional_diarization_keeps_one_player_and_raw_transcript_untouched():
     try:
         from PySide6.QtMultimedia import QMediaPlayer
         assert len(window.findChildren(QMediaPlayer)) == 1
-        assert window.inspector_tabs.tabText(5) == "Diarization"
+        assert window.actions["detect"].text() == "Auto Detect speakers…"
         window.stt_panel._show({
             "kind": "stt", "source": "a.wav", "duration": 3,
             "segments": [{"id": "s1", "start": 0, "end": 2, "text": "hello"}],

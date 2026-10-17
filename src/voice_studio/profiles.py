@@ -23,7 +23,9 @@ class InferenceProfile:
 
     @property
     def model_path(self) -> Path:
-        return MODEL_DIR / self.model_filename
+        from .model_service import ModelService
+        model = next(entry for entry in descriptors("locator") if entry.profile_key == self.key)
+        return ModelService().path(model)
 
 
 DEFAULT_PROFILE_KEY = default_model("locator").profile_key
