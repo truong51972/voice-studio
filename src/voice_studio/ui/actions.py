@@ -34,7 +34,7 @@ class EditorActionsMixin:
         self.recent_menu.aboutToShow.connect(self._refresh_recent_menu)
         add("import", "Import media", "File", self.projects_panel._add, "Ctrl+I")
         add("save", "Save project", "File", self._save, "Ctrl+S")
-        add("export", "Export project", "File", self.projects_panel._export, "Ctrl+Shift+E")
+        add("export", "Export project transcript", "File", self.projects_panel._export, "Ctrl+Shift+E")
         add("export_stt", "Export transcript", "File", self.stt_panel._export)
 
         add("move_back", "Move clip earlier", "Edit", lambda: self._move_clip(-1))
@@ -58,6 +58,9 @@ class EditorActionsMixin:
         add("preview", "Preview selected range", "View", self._preview_selection)
         add("zoom_fit", "Fit timeline", "View", lambda: (self.zoom.setValue(1), self.pan.setValue(0)))
         add("raw", "Raw AI results", "View", lambda: self.inspector_tabs.setCurrentWidget(self.raw_output.parentWidget()))
+        subtitles = add("subtitles", "Show subtitles", "View", self._toggle_subtitles)
+        subtitles.setCheckable(True)
+        subtitles.setChecked(True)
         for key, name, widget in (
             ("sources", "Sources panel", self.projects_panel),
             ("inspector", "Inspector", self.inspector_tabs),
@@ -83,8 +86,7 @@ class EditorActionsMixin:
         for key in ("speaker", "split", "merge", "revert", "export_stt"):
             self.stt_panel.table.addAction(self.actions[key])
         for button in (self.stt_panel.speaker_button, self.stt_panel.split_button,
-                       self.stt_panel.merge_button, self.stt_panel.reset_button,
-                       self.stt_panel.export_button):
+                       self.stt_panel.merge_button, self.stt_panel.reset_button):
             button.hide()
         app = QApplication.instance()
         app.installEventFilter(self)
@@ -167,7 +169,8 @@ class EditorActionsMixin:
         enabled = {
             "new": not working, "open": not working,
             "import": project and not working, "save": project,
-            "export": project, "export_stt": transcript,
+            "export": project and any(self.session.project.latest_analysis(m.id, "stt")
+                for m in self.session.project.items), "export_stt": transcript,
             "move_back": selection and not working, "move_forward": selection and not working,
             "trim": selection and not working,
             "split": transcript and len(rows) == 1, "merge": transcript and len(rows) == 2 and rows[1] == rows[0] + 1,
@@ -179,6 +182,7 @@ class EditorActionsMixin:
             "cancel": working, "play": selection and not self._typing(),
             "preview": selection, "raw": project,
         }
+        self.stt_panel.export_button.setEnabled(bool(transcript or enabled["export"]))
         for key, value in enabled.items():
             self.actions[key].setEnabled(bool(value))
         for key, widget in (("sources", self.projects_panel),
