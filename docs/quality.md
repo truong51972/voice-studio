@@ -21,7 +21,7 @@ recordings (do not commit private audio or transcripts):
 ]
 \`\`\`
 
-Run after \`uv sync --extra stt --dev\` and installing a model:
+Run after \`uv sync --locked\` and installing a model:
 
 \`\`\`bash
 uv run python -m voice_studio.quality \

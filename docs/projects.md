@@ -31,11 +31,11 @@ cache key and trims, invalidates reference regions, probes new duration/type and
 requires a new analysis. Old result files
 remain available on disk. Relinking is blocked during batch processing.
 
-Before upgrading, back up the entire `.projects/` folder and the separately stored
+Before upgrading, back up `.projects/`, `.models/`, `.settings/` and the separately stored
 media. Extract the new version into a new folder, then copy `.projects/` beside
 the new executable. Do not replace/delete the old portable folder until the new
 copy opens successfully. Release ZIPs exclude user `.projects/` data, and the
-build script refuses to overwrite a distribution that contains `.projects/`.
+build script refuses to overwrite a distribution containing `.projects/`, `.models/` or `.settings/`.
 There is no project cleanup on exit or automatic uninstaller. To delete a
 project, close the app, back up as needed and explicitly remove its project
 folder yourself; external media are unaffected.

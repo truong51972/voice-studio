@@ -1,76 +1,48 @@
-# Windows release candidate / diagnostics (#10)
+# Windows release candidate and native QA
 
-## One-click developer build
+## Default installation
 
-Run \`one-click.bat\` from a **Windows PowerShell/CMD machine** with \`uv\`.
-The default build installs STT and Auto Detect (pyannote/Torch) runtimes, fetches SHA-256 verified
-Locator models, packages the PySide6 application as \`dist/voice-studio/\`,
-runs the packaged Qt/FFmpeg/speaker and mandatory pyannote/Torch import smoke, then emits a Windows ZIP +
-SHA256 checksum.
-
-The same workflow can be triggered manually via **GitHub Actions →
-Manual Windows release candidate → Run workflow**. The CI workflow is
-opt-in, because network/model downloads and native binary packaging are
-expensive. Artifacts are *release candidates*, not automatically approved
-production releases.
-
-The baseline Locator model files are bundled (roughly 96 MiB); STT
-models are **not** bundled or downloaded until a user selects Install
-in the Model Manager. Windows STT builds use \`--with-stt\` to bundle
-Python/CTranslate2 runtime libraries. Both default Windows build paths also use
-`--with-diarization` to bundle pyannote/Torch. **Community-1 weights are not bundled**:
-obtain a complete local Community-1 folder under its upstream terms, including
-its local dependencies, then choose its `config.yaml` folder in **Speakers → Auto
-Detect → Browse**. Analysis never requests a token or downloads a model.
-See [local installation and operation](diarization.md). Runtime imports alone do
-not verify a complete model installation or successful real inference.
-
-Run \`voice-studio.exe --smoke-test\` on a real machine or the packaged
-candidate workflow; use \`voice-studio.exe --diagnostics\` from a terminal
-for model/runtime preflight. If the packaged process is windowed,
-console diagnostics may not display; run \`uv run python -m
-voice_studio.diagnostics\` on a Python-enabled dev environment.
-
-### Manual release sign-off (not yet achieved by CI)
-
-Projects use `.projects/` beside `voice-studio.exe`, independently of `_internal/`
-and the launch working directory. Test actual onedir behavior and a read-only
-install; no AppData fallback is permitted. Back up/move `.projects/` before
-rebuilding an existing distribution (the build refuses to overwrite it), and
-restore it beside a freshly extracted executable when upgrading. Keep original
-external media or relink their new locations. Release ZIPs exclude `.projects/`.
-See [portable project backup/recovery](projects.md).
-
-- Verify actual audio/video playback, sequential seek, source-range references and
-  still-responsive UI after >60 minutes.
-- Install Whisper Small through Model Manager, transcribe a consented
-  Vietnamese clip on CPU and confirm timestamps/export.
-- Test missing model/network failure and recover after cancellation.
-- Test CTranslate2 optional CUDA path only when GPU/native DLLs supported;
-  publish CPU-only status otherwise.
-- Confirm model terms and media consent, verify ZIP SHA256 checksum.
-- Test unpack/launch outside developer machine with no Python installation.
-
-Linux/WSL PyInstaller builds create Linux binaries, **not Windows EXEs**.
-No cross-compilation claim. ZIP timestamps/file ordering are normalized,
-but binary byte-for-byte reproducibility also depends on frozen DLL/wheel
-versions. Keep release candidate unsigned until real Windows QA.
-
-### Default Auto Detect runtime build
-
-The default one-click and workflow packages include pyannote/Torch. The equivalent
-manual build is:
+Run `one-click.bat` in a Windows x64 checkout with `uv`, or build manually:
 
 ```powershell
-uv sync --dev --extra stt --extra diarization
-uv run python scripts/build.py --with-stt --with-diarization
+uv sync --locked
+uv run python -m voice_studio.diagnostics --check-runtimes
+uv run python scripts/build.py
+uv run python scripts/release_zip.py --platform windows
 ```
 
-This includes runtime packages, not Community-1 model weights or tokens. Obtain a
-complete local Community-1 folder separately under its upstream terms and choose
-it in Speakers. Verify Torch/audio codec DLL compatibility and real inference on
-the candidate; a successful build or import smoke is not model/playback acceptance.
-The build fails before packaging if requested runtime packages are unavailable.
-Its frozen executable smoke runs with `--require-diarization` and fails the build
-if pyannote, Torch or torchaudio cannot import. A smaller developer-only build may
-omit `--with-diarization`, but that is not the default Windows deliverable.
+All supported production Python runtimes (PySide6, sherpa-onnx, faster-whisper/CTranslate2, pyannote/Torch, torchaudio and TorchCodec) are installed by **one** `uv sync --locked`, without feature extras. The `dev` group supplies build tools. The build uses PyInstaller onedir and includes versioned JSON model catalogs, the Qt app and native runtime packages. A Linux/WSL build makes a Linux executable, **not** a Windows .exe.
+
+**Models are user-owned assets, not runtime dependencies.** The executable can launch without model weights. Use **Settings → Models** to explicitly install/import, verify and test readiness. Community-1 requires obtaining a complete local model folder under upstream gated-access terms. Neither installation nor release build bypasses these terms.
+
+## Portable data and upgrade safety
+
+```text
+VoiceStudio/
+  voice-studio.exe
+  _internal/             # immutable packaged libraries/catalog
+  .projects/             # projects, reviews, history
+  .models/               # user-managed model weights
+  .settings/             # model/user defaults
+```
+
+Release ZIPs exclude `.projects/`, `.models/` and `.settings/`. The build script refuses to overwrite an onedir distribution containing portable user data. For upgrades, close Voice Studio, back up the three user folders and original external media, extract the new application to another writable directory, then restore/verify data before discarding the previous version. Moving the executable alone does not relocate external recordings or linked legacy weights; use Relink / Import.
+
+## Automated gates
+
+`scripts/build.py` checks the bundled catalogs, expected executable/resources and a packaged `--smoke-test`. The packaged smoke imports all mandatory production backends and verifies the FFmpeg executable path without requiring model weights. Dependency import checks **do not** establish real-model inference, native audio/video playback or CUDA compatibility.
+
+The desktop CI matrix covers Python 3.11 and 3.12 on Windows x64 and Linux x64 with `uv sync --locked`, runtime import checks and Qt offscreen tests. These are tests for the relevant commit, not a blanket release sign-off. See GitHub Actions for live results.
+
+## Required manual Windows release acceptance
+
+- Clean-machine extraction launches with no developer Python or uv installation.
+- Install and **Test readiness** for a consented Whisper Small model; transcribe Vietnamese and English audio, inspect timestamps, edit and export TXT/SRT/Markdown/JSON.
+- Import Community-1 after upstream access approval, verify required local files and run actual CPU diarization; confirm original overlap and exclusive turns remain distinct, and human transcript corrections survive re-analysis.
+- Test CAM++ / ERes2NetV2 on real CPU, manual source ranges, multi-source timeline/seek, model changes, cancellation and storage relocation.
+- Verify native FFmpeg/TorchCodec libraries when used by the chosen backend, Qt Multimedia playback, microphone operation and long (>60 min) project responsiveness.
+- Confirm no model downloads at startup, missing/corrupt model recovery, interrupted download and retry, model in-use protection, restart and preservation of portable data.
+- Publish unsupported GPU/CUDA conditions explicitly; no GPU guarantee without real driver/DLL/model probe.
+- Review release ZIP SHA-256 and upstream model licenses. Do not call candidate builds fully released until manual acceptance is completed.
+
+See [runtime constraints](inference_runtime.md), [model management](model_manager.md), and [quality gates](quality.md).
