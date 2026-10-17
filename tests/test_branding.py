@@ -10,6 +10,10 @@ def test_new_package_identity():
     assert not (root / "src" / "voice_locator").exists()
 
 
-def test_product_does_not_advertise_incomplete_features():
+def test_product_distinguishes_merged_features_from_release_validation():
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
-    assert "not implemented yet" in readme
+    assert "Development preview" in readme
+    assert "STT" in readme
+    assert "Windows packaging" in readme
+    assert "not yet been signed off" in readme
+    assert "Implementation PRs #15–#23 have all been merged" in readme
