@@ -64,7 +64,10 @@ def test_snapshot_install_copies_hf_cache_symlinks(tmp_path, monkeypatch):
     for name in model.required_assets:
         asset = blob_dir / name
         asset.write_bytes(("file-" + name).encode())
-        (snap / name).symlink_to(asset)
+        try:
+            (snap / name).symlink_to(asset)
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlink creation requires Windows Developer Mode or admin privileges")
     fake_hub = types.ModuleType("huggingface_hub")
     fake_hub.HfApi = lambda: SimpleNamespace(
         model_info=lambda *_args, **_kwargs: SimpleNamespace(sha="a" * 40)
