@@ -20,6 +20,7 @@ from .panels.locator import LocatorPanelsMixin
 from .panels.stt import STTPanel
 from .panels.projects import ProjectsPanel
 from .panels.diarization import DiarizationPanel
+from .panels.summary import SummaryPanel
 from .resources import _resource_path
 from .theme import APP_STYLESHEET
 from .timecode import _fmt_time, _parse_timecode, milliseconds_to_seconds, seconds_to_milliseconds
@@ -148,6 +149,8 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.diarization_panel.seekRequested.connect(self._seek_to_seconds)
         self.diarization_panel.turnsReady.connect(self.stt_panel.apply_diarization)
         self.inspector_tabs.addTab(self.diarization_panel, "Diarization")
+        self.summary_panel = SummaryPanel(self.stt_panel, self)
+        self.inspector_tabs.addTab(self.summary_panel, "Summary")
         self.stt_panel.documentChanged.connect(self._save_project_review)
 
         self.workspace_splitter.addWidget(preview_panel)
@@ -238,6 +241,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.target_label.setText(Path(source).name)
         self.stt_panel.set_media(source)
         self.diarization_panel.set_media(source)
+        self.summary_panel.reset()
         self.stt_panel.load_document(document)
         self._player.setSource(QUrl.fromLocalFile(source))
 
@@ -262,6 +266,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self._target_path = path
         self.stt_panel.set_media(path)
         self.diarization_panel.set_media(path)
+        self.summary_panel.reset()
         self._bundle = None
         self.target_label.setText(Path(path).name)
         self.preview_status.setText("Media loaded")
@@ -416,6 +421,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.projects_panel._timer.stop()
         self.projects_panel._manager.close()
         self.diarization_panel._manager.close()
+        self.summary_panel._manager.close()
         if self._worker and self._worker.isRunning():
             self._worker.cancel()
         super().closeEvent(event)
