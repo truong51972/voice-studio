@@ -176,7 +176,7 @@ def install(model: ModelDescriptor, root: Path | None = None) -> Path:
                 raise RuntimeError(f"Missing required model artifact: {asset}")
         checksums = {}
         for src in snapshot.rglob("*"):
-            if not src.is_file() or src.is_symlink():
+            if not src.is_file():
                 continue
             relative = src.relative_to(snapshot)
             dst = scratch / relative
