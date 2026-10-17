@@ -54,10 +54,13 @@ def transcribe(
     if model.task != "stt":
         raise ValueError("Choose an STT model from Model Manager")
     if engine is None:
-        problems = preflight(model, device=options.device)
+        problems = preflight(model, device=options.device, compute_type=options.compute_type)
         if problems:
             raise RuntimeError("; ".join(problems))
         try:
+            if options.device == "cuda":
+                from .model_backends import prepare_cuda_runtime
+                prepare_cuda_runtime()
             from faster_whisper import WhisperModel
             engine = WhisperModel(
                 str(model_path(model)), device=options.device,
