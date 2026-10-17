@@ -170,8 +170,16 @@ class ModelService:
             version = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError:
             version = "missing"
-        return {"engine": model.engine, "version": version, "python": sys.version.split()[0],
-                "device": device, "compute_type": compute_type or model.inference_defaults.compute_type}
+        signature = {"engine": model.engine, "version": version, "python": sys.version.split()[0],
+                     "device": device, "compute_type": compute_type or model.inference_defaults.compute_type}
+        if device == "cuda":
+            # Invalidate GPU readiness on backend upgrades without affecting legacy CPU probes.
+            for package in ("ctranslate2", "torch"):
+                try:
+                    signature[package] = importlib.metadata.version(package)
+                except importlib.metadata.PackageNotFoundError:
+                    signature[package] = "missing"
+        return signature
 
     def is_ready(self, model: ModelDescriptor, *, device: str = "cpu",
                  compute_type: str | None = None) -> bool:
