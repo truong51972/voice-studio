@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "locator-fast",
+      "task": "locator",
+      "engine": "sherpa-onnx",
+      "label": "Nhanh · CAM++",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+      "license": "See upstream 3D-Speaker/sherpa-onnx model terms",
+      "languages": [
+        "multilingual"
+      ],
+      "devices": [
+        "cpu"
+      ],
+      "required_assets": [
+        "3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx"
+      ],
+      "expected_size_bytes": 29596978,
+      "sha256": "357a834f702b80161e5b981182c038e18553c1f2ca752ed6cec2052365d4129b",
+      "revision": null,
+      "provider": "urls",
+      "default": true,
+      "profile_key": "fast",
+      "description": "Model mặc định, nhẹ hơn và phù hợp phân tích nhanh trên CPU.",
+      "download_urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
+        "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx?download=true"
+      ],
+      "capabilities": [
+        "offline",
+        "speaker_embeddings"
+      ],
+      "inference_defaults": {
+        "threshold": 0.6,
+        "num_threads": 2
+      }
+    },
+    {
+      "id": "locator-accurate",
+      "task": "locator",
+      "engine": "sherpa-onnx",
+      "label": "Chính xác · ERes2NetV2",
+      "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx",
+      "license": "See upstream 3D-Speaker/sherpa-onnx model terms",
+      "languages": [
+        "multilingual"
+      ],
+      "devices": [
+        "cpu"
+      ],
+      "required_assets": [
+        "3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx"
+      ],
+      "expected_size_bytes": 71441526,
+      "sha256": "bf1a75b9930474cf3389ef415e6e5d38ca96fea4a3a00f7e301d080a58ee2239",
+      "revision": null,
+      "provider": "urls",
+      "default": false,
+      "profile_key": "accurate",
+      "description": "Model lớn hơn, ưu tiên chất lượng speaker embedding hơn tốc độ xử lý.",
+      "download_urls": [
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx",
+        "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx?download=true"
+      ],
+      "capabilities": [
+        "offline",
+        "speaker_embeddings"
+      ],
+      "inference_defaults": {
+        "threshold": 0.6,
+        "num_threads": 2
+      }
+    }
+  ]
+}

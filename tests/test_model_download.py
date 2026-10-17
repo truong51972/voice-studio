@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-import importlib.util
 from dataclasses import replace
-from pathlib import Path
 
 
 def _load_downloader():
-    script = Path(__file__).resolve().parents[1] / "scripts" / "download_models.py"
-    spec = importlib.util.spec_from_file_location("download_models_test", script)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from voice_studio import model_download
+    return model_download
 
 
 def _test_profile(module, payload: bytes, filename: str = "model.onnx"):

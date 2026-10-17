@@ -84,3 +84,37 @@ def test_snapshot_install_copies_hf_cache_symlinks(tmp_path, monkeypatch):
     assert (result / "model.bin").is_file()
     assert not (result / "model.bin").is_symlink()
     assert catalog.installed(model, root=tmp_path / "models")
+
+
+def test_locator_installs_from_application_module_in_frozen_build(tmp_path, monkeypatch):
+    import sys
+    from dataclasses import replace
+    from voice_studio import profiles
+
+    payload = b"tiny model for installer smoke"
+    source = tmp_path / "source.onnx"
+    source.write_bytes(payload)
+    digest = hashlib.sha256(payload).hexdigest()
+    profile = replace(
+        profiles.INFERENCE_PROFILES["fast"],
+        model_filename="test.onnx", model_size=len(payload),
+        model_sha256=digest, download_urls=(source.as_uri(),),
+    )
+    model = get_model("locator-fast").model_copy(update={
+        "required_assets": (profile.model_filename,),
+        "expected_size_bytes": profile.model_size, "sha256": digest,
+    })
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(profiles, "get_inference_profile", lambda _key: profile)
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "installed"
+    result = catalog.install(model, root=root)
+    assert result == root / "test.onnx"
+    assert result.read_bytes() == payload
+    assert installed(model, root=root)
+
+
+def test_gated_catalog_entry_does_not_start_download(tmp_path):
+    with pytest.raises(RuntimeError, match="upstream|Hugging Face"):
+        catalog.install(get_model("pyannote-community-1"), root=tmp_path)
+    assert not list(tmp_path.iterdir())

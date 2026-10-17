@@ -57,6 +57,8 @@ class ModelManagerDialog(QDialog):
     def refresh(self) -> None:
         entry = get_model(str(self.model.currentData()))
         ready = installed(entry)
+        busy = self._worker is not None and self._worker.isRunning()
+        self.install_button.setEnabled(not busy and entry.provider != "local-folder")
         self.details.setText(
             f"Engine: {entry.engine} · Source: {entry.source}\n"
             f"License: {entry.license}\n"
@@ -64,7 +66,7 @@ class ModelManagerDialog(QDialog):
         )
         import sys
         self.remove_button.setEnabled(
-            ready and not (getattr(sys, "frozen", False) and entry.task == "locator")
+            not busy and ready and not (getattr(sys, "frozen", False) and entry.task == "locator")
         )
         self.status.setText("CPU preflight: " + ("; ".join(preflight(entry)) or "Ready"))
 

@@ -7,16 +7,23 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12"]
+    runs-on: ${{ matrix.os }}
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
+      - run: uv python install ${{ matrix.python }}
       - name: Install Qt libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libegl1 libopengl0 libgl1 libxkbcommon-x11-0 libpulse0
-      - run: uv sync --dev
+          sudo apt-get install -y libegl1 libopengl0 libgl1 libxkbcommon-x11-0 libpulse0 ffmpeg
+      - run: uv sync --locked --python ${{ matrix.python }}
+      - run: uv run python -m voice_studio.diagnostics --check-runtimes
       - run: uv run poe check
       - run: uv run poe test

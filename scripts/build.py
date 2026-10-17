@@ -83,8 +83,7 @@ def _verify_assets() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--with-stt", action="store_true", help="Bundle optional offline faster-whisper runtime")
-    args = parser.parse_args()
+    parser.parse_args()
     _verify_models()
     _verify_assets()
 
@@ -105,6 +104,8 @@ def main() -> None:
         f"{ROOT / 'models'}{sep}models",
         "--add-data",
         f"{APP_ICON}{sep}assets",
+        "--add-data",
+        f"{ROOT / 'configs' / 'models'}{sep}voice_studio/configs/models",
         "--collect-all",
         "sherpa_onnx",
         "--collect-all",
@@ -115,17 +116,13 @@ def main() -> None:
         "PySide6.QtMultimediaWidgets",
     ]
 
-    if args.with_stt:
-        required = ("faster_whisper", "ctranslate2", "huggingface_hub")
-        missing_backends = [name for name in required if importlib.util.find_spec(name) is None]
-        if missing_backends:
-            raise SystemExit(
-                "Install optional STT runtime before building: uv sync --dev --extra stt; "
-                + ", ".join(missing_backends)
-            )
-        for name in required:
-            cmd += ["--collect-all", name]
-        print("[build] Including offline STT runtime; no speech models are shipped.")
+    from voice_studio.diagnostics import runtime_import_errors
+    errors = runtime_import_errors()
+    if errors:
+        raise SystemExit(f"Repair required production runtimes before building: {errors}")
+    for name in ("faster_whisper", "ctranslate2", "huggingface_hub", "torch", "torchaudio", "torchcodec", "pyannote.audio"):
+        cmd += ["--collect-all", name]
+    print("[build] Including all production runtimes; STT/diarization weights are user-installed.")
 
     bundled_ort_source: Path | None = None
     if os.name == "nt":
@@ -162,6 +159,8 @@ def main() -> None:
         "executable": executable,
         "assets/voice-studio.png": internal_dir / "assets" / "voice-studio.png",
     }
+    for name in ("speaker_matching", "stt", "diarization"):
+        required_outputs[f"catalog/{name}.json"] = internal_dir / "voice_studio" / "configs" / "models" / f"{name}.json"
     if os.name == "nt":
         required_outputs["sherpa_onnx/lib/onnxruntime.dll"] = (
             internal_dir / "sherpa_onnx" / "lib" / "onnxruntime.dll"

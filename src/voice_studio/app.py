@@ -6,6 +6,7 @@ import multiprocessing as mp
 
 # Keep the local/offline application free from external telemetry.
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+os.environ.setdefault("PYANNOTE_METRICS_ENABLED", "0")
 
 
 def main() -> None:
@@ -17,6 +18,7 @@ def main() -> None:
     mp.freeze_support()
     if "--diagnostics" in sys.argv:
         from voice_studio.diagnostics import main as diagnostics_main
+        sys.argv.remove("--diagnostics")
         diagnostics_main()
         return
     smoke_test = "--smoke-test" in sys.argv
@@ -37,18 +39,24 @@ def main() -> None:
     from voice_studio.ui import build_app, create_application
 
     qt_app = create_application(sys.argv)
+    if not smoke_test:
+        from voice_studio.diagnostics import runtime_presence
+        missing = [name for name, present in runtime_presence().items() if not present]
+        if missing:
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                None, "Incomplete application installation",
+                "Required application runtimes are missing: " + ", ".join(missing)
+                + ". Repair or reinstall Voice Studio before using these features.",
+            )
     window = build_app()
 
     if smoke_test:
-        import imageio_ffmpeg  # noqa: F401
-        import PySide6  # noqa: F401
-        # Optional STT runtime sanity test, without model downloads/inference.
-        try:
-            import faster_whisper  # noqa: F401
-            import ctranslate2  # noqa: F401
-            print("[smoke] Optional STT CPU runtime imports: OK")
-        except ImportError:
-            print("[smoke] Optional STT runtime not bundled (Locator-only build)")
+        from voice_studio.diagnostics import runtime_import_errors
+        errors = runtime_import_errors()
+        if errors:
+            raise RuntimeError(f"Required production runtimes failed to import: {errors}")
+        print("[smoke] All production runtime imports: OK (native GPU readiness not checked)")
 
         from voice_studio.embedding import SpeakerEmbedder
         from voice_studio.media import ffmpeg_executable

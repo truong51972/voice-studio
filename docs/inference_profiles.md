@@ -34,7 +34,8 @@ Recommended follow-up experiments:
 
 ## Extension contract
 
-New profiles belong in `src/voice_studio/profiles.py`. Each entry owns:
+New profiles belong in `configs/models/speaker_matching.json`. The validated
+catalog generates the existing `InferenceProfile` interface. Each entry owns:
 
 - a stable profile key and user-facing label;
 - model filename, exact size and SHA-256;

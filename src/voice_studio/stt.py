@@ -14,19 +14,23 @@ from typing import Callable, Iterator
 import numpy as np
 
 from .media import ffmpeg_executable
-from .model_registry import get_model, installed, model_path, preflight
+from .model_registry import get_model, model_path, preflight
+from .model_catalog import default_model
+
+_DEFAULT_MODEL = default_model("stt")
+_DEFAULTS = _DEFAULT_MODEL.inference_defaults
 
 SAMPLE_RATE = 16_000
 
 @dataclass(frozen=True, slots=True)
 class STTOptions:
-    model_id: str = "whisper-small"
-    language: str = "auto"
-    vad: bool = True
-    word_timestamps: bool = False
-    chunk_seconds: int = 30
-    device: str = "cpu"
-    compute_type: str = "int8"
+    model_id: str = _DEFAULT_MODEL.id
+    language: str = _DEFAULTS.language
+    vad: bool = _DEFAULTS.vad
+    word_timestamps: bool = _DEFAULTS.word_timestamps
+    chunk_seconds: int = _DEFAULTS.chunk_seconds
+    device: str = _DEFAULTS.device
+    compute_type: str = _DEFAULTS.compute_type
 
     def __post_init__(self):
         if self.language not in ("auto", "vi", "en"):
@@ -51,7 +55,7 @@ def _read_chunk(stream, samples_per_chunk: int) -> np.ndarray:
         raise ValueError("FFmpeg produced a partial float32 frame")
     return np.frombuffer(raw, dtype="<f4").copy()
 
-def stream_audio(path: str | Path, *, chunk_seconds: int = 30) -> Iterator[tuple[float, np.ndarray]]:
+def stream_audio(path: str | Path, *, chunk_seconds: int = _DEFAULTS.chunk_seconds) -> Iterator[tuple[float, np.ndarray]]:
     path = Path(path)
     if not path.is_file():
         raise FileNotFoundError(path)

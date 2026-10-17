@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 
 from .media import ffmpeg_executable
+from .model_catalog import default_model
 
 
 def _speaker_turns(output) -> list[dict]:
@@ -53,7 +54,7 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> 
         try:
             from pyannote.audio import Pipeline
         except ImportError as exc:
-            raise RuntimeError("Install optional pyannote audio runtime: uv sync --extra diarization") from exc
+            raise RuntimeError("Diarization runtime is missing. Repair the application installation.") from exc
         pipeline = Pipeline.from_pretrained(str(model_dir))
     # Local temporary normalized waveform: no large PCM arrays over IPC.
     with tempfile.TemporaryDirectory(prefix="voice-studio-diar-") as work:
@@ -70,7 +71,7 @@ def diarize(path: str | Path, local_model_dir: str | Path, *, pipeline=None) -> 
     turns = _speaker_turns(output)
     return {
         "kind": "diarization", "source": str(media),
-        "model": "pyannote-community-1",
+        "model": default_model("diarization").id,
         "speakers": sorted({t["speaker_id"] for t in turns}),
         "turns": turns,
     }

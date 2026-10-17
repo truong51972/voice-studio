@@ -11,7 +11,7 @@ A **local-first PySide6 desktop editor** for audio/video analysis, bootstrapped 
 - Register 1–3 known reference speakers (file upload or microphone recording).
 - Two local embedding profiles: CAM++ (Fast) and ERes2NetV2 (Accurate); profile threshold, per-speaker matching and segment details.
 - Offline/private Locator analysis; no cloud upload required.
-- Optional offline **faster-whisper STT** (Vietnamese/English/auto language selection), word timestamps and source-aligned segments.
+- Offline **faster-whisper STT** (Vietnamese/English/auto language selection), word timestamps and source-aligned segments.
 - Editable, searchable transcripts; split/merge, speaker labels, common-player seek and TXT/SRT/Markdown/JSON exports.
 - Multi-file local project queue, per-file cache and reviewed transcripts, combined Markdown/TXT exports.
 - Optional local Community-1 diarization, anonymous speaker turns and editable attribution.
@@ -21,13 +21,12 @@ A **local-first PySide6 desktop editor** for audio/video analysis, bootstrapped 
 
 ## Run locally
 
-Requires Python 3.11–3.12, [uv](https://docs.astral.sh/uv/) and a compatible Qt desktop. Some Linux distributions need multimedia packages.
+Targets Windows x64 and Linux x64 with Python 3.11–3.12, [uv](https://docs.astral.sh/uv/) and a compatible Qt desktop. Some Linux distributions need multimedia packages. See the [runtime verification and platform limits](docs/inference_runtime.md). macOS and other architectures are outside the current runtime matrix.
 
 ```bash
-uv sync --dev
-# Optional STT dependencies: uv sync --dev --extra stt
-uv run poe models      # download and verify CAM++ / ERes2NetV2 ONNX models
+uv sync --locked
 uv run poe start       # start desktop UI
+uv run poe models      # optional developer download of both speaker models
 uv run poe test        # unit tests + Qt offscreen tests
 uv run poe check       # compile all Python files
 ```
@@ -41,7 +40,7 @@ systems such as WSLg where PipeWire's `client.conf` is missing. An explicit
 
 The speaker ONNX models (approximately 96 MiB total) download only on request, are checked against their SHA-256 and never committed to Git.
 
-Model management: [docs/model_manager.md](docs/model_manager.md). Open **Models** to install and verify assets. To run local transcription, install optional dependencies with `uv sync --dev --extra stt`, then install an STT model using the Model Manager. Model downloads happen only when explicitly requested.
+One `uv sync --locked` installs all production Python runtimes, including STT and diarization. Model weights are separate: open **Models** to install speaker/STT assets. Community-1 still uses the existing local-folder workflow. Downloads happen only when explicitly requested. See [model management](docs/model_manager.md).
 
 ## Workflow
 
@@ -60,6 +59,7 @@ Architecture and timebase contracts: [docs/architecture.md](docs/architecture.md
 
 ```text
 src/voice_studio/  desktop UI, media, matching, local services
+configs/models/    versioned, validated model catalog (bundled with the app)
 scripts/           model download and development build helper
 tests/             audio, similarity, UI, seek, profiles and download regression tests
 assets/            new Voice Studio icon
@@ -68,7 +68,7 @@ models/            local-only model data
 
 ## Scope and release caveats
 
-The manually triggered Windows release-candidate workflow and `one-click.bat` are available, but **Windows packaging, optional CUDA runtime and native media/microphone tests have not yet been signed off**. CI covers model-free Linux/Qt offscreen tests; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
+The manually triggered Windows release-candidate workflow and `one-click.bat` are available, but **Windows packaging, optional CUDA runtime and native media/microphone tests have not yet been signed off**. CI is configured for model-free Windows/Linux tests and Qt offscreen checks; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
 
 Detailed workflows: [STT](docs/stt.md) · [Transcript](docs/transcript.md) · [Projects](docs/projects.md) · [Diarization](docs/diarization.md) · [Optional local AI drafts](docs/enhancements.md).
 

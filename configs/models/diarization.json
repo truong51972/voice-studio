@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "models": [
+    {
+      "id": "pyannote-community-1",
+      "task": "diarization",
+      "engine": "pyannote",
+      "label": "Community-1",
+      "source": "pyannote/speaker-diarization-community-1",
+      "provider": "local-folder",
+      "revision": "main",
+      "license": "CC-BY-4.0; accept upstream gated access conditions before obtaining weights",
+      "access": "Accept the Hugging Face model terms, then select a complete local Community-1 folder in the Diarization panel. Automatic download is not supported yet.",
+      "languages": [
+        "multilingual"
+      ],
+      "devices": [
+        "cpu"
+      ],
+      "required_assets": [
+        "config.yaml"
+      ],
+      "capabilities": [
+        "offline",
+        "anonymous_speakers"
+      ],
+      "default": true,
+      "inference_defaults": {
+        "device": "cpu"
+      }
+    }
+  ]
+}

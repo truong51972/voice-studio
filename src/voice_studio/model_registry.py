@@ -14,20 +14,9 @@ import os
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
-from .profiles import INFERENCE_PROFILES
-
-ModelTask = Literal["locator", "stt"]
-_REQUIRED_STT = ("model.bin", "config.json", "tokenizer.json")
-_STT_MODELS = {
-    "whisper-small": ("Systran/faster-whisper-small", "Small · multilingual"),
-    "whisper-medium": ("Systran/faster-whisper-medium", "Medium · multilingual"),
-    "whisper-large-v3-turbo": ("mobiuslabsgmbh/faster-whisper-large-v3-turbo", "Large v3 Turbo"),
-    "whisper-large-v3": ("Systran/faster-whisper-large-v3", "Large v3"),
-}
+from .model_catalog import ModelDescriptor, ModelTask, descriptors, get_model
 
 def user_model_dir() -> Path:
     override = os.environ.get("VOICE_STUDIO_MODEL_DIR")
@@ -38,52 +27,11 @@ def user_model_dir() -> Path:
         return Path(root) / "VoiceStudio" / "models"
     return Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local" / "share"))) / "voice-studio" / "models"
 
-@dataclass(frozen=True, slots=True)
-class ModelDescriptor:
-    id: str
-    task: ModelTask
-    engine: str
-    label: str
-    source: str
-    license: str
-    languages: tuple[str, ...]
-    devices: tuple[str, ...]
-    required_assets: tuple[str, ...]
-    expected_size_bytes: int | None = None
-    sha256: str | None = None
-    revision: str | None = None
-
-def descriptors(task: ModelTask | None = None) -> tuple[ModelDescriptor, ...]:
-    catalog = []
-    for key, profile in INFERENCE_PROFILES.items():
-        catalog.append(ModelDescriptor(
-            id="locator-" + key, task="locator", engine="sherpa-onnx",
-            label=profile.label, source=profile.download_urls[0],
-            license="See upstream 3D-Speaker/sherpa-onnx model terms",
-            languages=("multilingual",), devices=("cpu",),
-            required_assets=(profile.model_filename,),
-            expected_size_bytes=profile.model_size, sha256=profile.model_sha256,
-        ))
-    for key, (source, label) in _STT_MODELS.items():
-        catalog.append(ModelDescriptor(
-            id=key, task="stt", engine="faster-whisper",
-            label=label, source=source,
-            license="Check the model card and license before download",
-            languages=("auto", "vi", "en"), devices=("cpu", "cuda"),
-            required_assets=_REQUIRED_STT,
-        ))
-    return tuple(x for x in catalog if task is None or x.task == task)
-
-def get_model(model_id: str) -> ModelDescriptor:
-    for model in descriptors():
-        if model.id == model_id:
-            return model
-    raise KeyError(f"Unknown model: {model_id}")
-
 def model_path(model: ModelDescriptor, root: Path | None = None) -> Path:
     if model.task == "locator":
         from .profiles import get_inference_profile
-        return get_inference_profile(model.id.removeprefix("locator-")).model_path
+        return ((root / model.required_assets[0]) if root is not None
+                else get_inference_profile(model.profile_key).model_path)
     return (root if root is not None else user_model_dir()) / model.id
 
 def _digest(path: Path) -> str:
@@ -123,9 +71,11 @@ def preflight(model: ModelDescriptor, *, device: str = "cpu", root: Path | None 
     if device not in model.devices:
         problems.append(f"{model.label}: device {device!r} is unsupported")
     if model.engine == "faster-whisper" and importlib.util.find_spec("faster_whisper") is None:
-        problems.append("Install the optional STT runtime: uv sync --extra stt")
+        problems.append("STT runtime is missing. Repair the application installation.")
+    if model.engine == "pyannote":
+        problems.append(model.access)
     if model.engine == "sherpa-onnx" and importlib.util.find_spec("sherpa_onnx") is None:
-        problems.append("Missing sherpa-onnx runtime; run uv sync")
+        problems.append("Speaker runtime is missing. Repair the application installation.")
     if not installed(model, root):
         problems.append(f"Model not installed or corrupt: {model.id}")
     if device == "cuda":
@@ -136,22 +86,17 @@ def preflight(model: ModelDescriptor, *, device: str = "cpu", root: Path | None 
 def install(model: ModelDescriptor, root: Path | None = None) -> Path:
     """Explicit, blocking installer to call from a worker, never the GUI thread."""
     if model.task == "locator":
-        # Reuse the proven resumable/downloader and SHA verification from #2.
-        from importlib.util import module_from_spec, spec_from_file_location
-        script = Path(__file__).resolve().parents[2] / "scripts" / "download_models.py"
-        spec = spec_from_file_location("voice_studio_model_downloader", script)
-        if spec is None or spec.loader is None:
-            raise RuntimeError("Model downloader not found in checkout")
-        module = module_from_spec(spec)
-        spec.loader.exec_module(module)
+        from .model_download import ensure_model
         from .profiles import get_inference_profile
-        module.ensure_model(get_inference_profile(model.id.removeprefix("locator-")))
+        ensure_model(get_inference_profile(model.profile_key), model_path(model, root))
         if not installed(model, root):
             raise RuntimeError("Locator download failed integrity verification")
         return model_path(model, root)
 
+    if model.provider == "local-folder":
+        raise RuntimeError(model.access)
     if importlib.util.find_spec("huggingface_hub") is None:
-        raise RuntimeError("Install optional STT dependencies first: uv sync --extra stt")
+        raise RuntimeError("Model download runtime is missing. Repair the application installation.")
     from huggingface_hub import HfApi, snapshot_download
 
     base = root if root is not None else user_model_dir()

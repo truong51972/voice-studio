@@ -3,7 +3,7 @@
 Known-speaker Locator remains unchanged. Unknown-speaker diarization is a
 separate *optional* local task; it is not speaker identification.
 
-- Install the optional Python runtime (\`uv sync --extra diarization\`) and a
+- Install application runtimes (\`uv sync --locked\`) and a
   complete, locally available Community-1 model from
   [pyannote](https://huggingface.co/pyannote/speaker-diarization-community-1).
 - Accept upstream license/terms and download on your own workstation.
@@ -21,5 +21,7 @@ separate *optional* local task; it is not speaker identification.
   override assignments. Source timebase is unchanged.
 
 This code path requires hands-on real-model, multi-speaker and Windows
-runtime testing before marking support as validated. Heavy dependencies
-are not installed in the default package or model-free CI.
+runtime testing before marking support as validated. Python runtimes are
+included in the default installation and packaging; gated weights remain
+user-managed. TorchCodec also needs compatible native FFmpeg shared libraries;
+the bundled FFmpeg executable alone does not prove that it can decode audio.
