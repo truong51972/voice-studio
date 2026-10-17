@@ -358,6 +358,7 @@ class MainWindow(LocatorPanelsMixin, QMainWindow):
         self.time_label.setText(f"{_fmt_time(seconds)} / {_fmt_time(duration)}")
         self.timeline.set_position_seconds(seconds)
         self.video_widget.overlay.set_position(seconds)
+        self.stt_panel.set_playhead(seconds)
 
     @Slot(int)
     def _on_player_duration(self, duration_ms: int) -> None:
