@@ -27,3 +27,14 @@ jobs:
       - run: uv run python -m voice_studio.diagnostics --check-runtimes
       - run: uv run poe check
       - run: uv run poe test
+      - name: Capture project-first editor UI preview
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        run: |
+          mkdir -p artifacts
+          uv run python -c "from voice_studio.ui import create_application, build_app; app=create_application([]); window=build_app(); window.show(); app.processEvents(); image=window.grab(); assert not image.isNull(); assert image.save('artifacts/editor-after.png'); window.close(); app.processEvents()"
+      - uses: actions/upload-artifact@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        with:
+          name: voice-studio-editor-preview
+          path: artifacts/editor-after.png
+          if-no-files-found: error
