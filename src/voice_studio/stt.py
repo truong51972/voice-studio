@@ -41,6 +41,10 @@ class STTOptions:
             raise ValueError("Beam size must be 1–20")
         if self.device not in ("cpu", "cuda"):
             raise ValueError("Unsupported STT device")
+        if self.compute_type not in ("int8", "float32", "float16", "int8_float16"):
+            raise ValueError("Unsupported STT compute type")
+        if self.device == "cuda" and self.compute_type not in ("float16", "int8_float16"):
+            raise ValueError("CUDA STT requires float16 or int8_float16")
 
 def transcribe(
     media_path: str | Path,
