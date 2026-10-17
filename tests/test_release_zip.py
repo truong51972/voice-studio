@@ -1,5 +1,12 @@
 from pathlib import Path
-from scripts.release_zip import pack, sha256
+import importlib.util
+
+module_path = Path(__file__).resolve().parents[1] / "scripts" / "release_zip.py"
+spec = importlib.util.spec_from_file_location("voice_studio_release_zip_test", module_path)
+assert spec is not None and spec.loader is not None
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+pack, sha256 = module.pack, module.sha256
 
 def test_release_zip_is_stable_and_has_checksum(tmp_path):
     dist = tmp_path / "dist" / "voice-studio"
