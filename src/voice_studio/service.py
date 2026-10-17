@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TypeAlias
+from typing import Sequence
 
-import numpy as np
+from .audio import AudioInput
 
 from .pipeline import AnalysisBundle, _compute_analysis
 from .profiles import DEFAULT_PROFILE_KEY, get_inference_profile
-
-AudioInput: TypeAlias = tuple[int, np.ndarray] | str | Path | None
 
 
 def analyze_bundle(
@@ -30,3 +28,25 @@ def analyze_bundle(
         profile_key=profile.key,
     )
     return bundle, resolved_threshold
+
+
+class LocatorService:
+    """Qt-independent adapter exposing the established Locator inference contract.
+
+    The existing `analyze_bundle` remains available for compatibility. Workers
+    consume this interface without importing or owning any UI widgets.
+    """
+
+    def analyze(
+        self,
+        references: Sequence[tuple[str, AudioInput]],
+        target_audio: AudioInput,
+        target_video: str | Path | None,
+        threshold: float | None,
+        *,
+        profile_key: str = DEFAULT_PROFILE_KEY,
+    ) -> tuple[AnalysisBundle, float]:
+        return analyze_bundle(
+            list(references), target_audio, target_video, threshold,
+            profile_key=profile_key,
+        )

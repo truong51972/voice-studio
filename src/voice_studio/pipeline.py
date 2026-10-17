@@ -7,7 +7,7 @@ from typing import Iterable
 
 import numpy as np
 
-from .audio import GradioAudio, prepare_gradio_audio
+from .audio import AudioInput, prepare_audio
 from .config import (
     HOP_SECONDS,
     MAX_MERGE_GAP_SECONDS,
@@ -80,7 +80,7 @@ def _fmt_time(seconds: float) -> str:
     return f"{remain:.1f}s"
 
 
-def _validate_references(references: Iterable[tuple[str, GradioAudio]]) -> list[ReferenceVoice]:
+def _validate_references(references: Iterable[tuple[str, AudioInput]]) -> list[ReferenceVoice]:
     prepared: list[ReferenceVoice] = []
     seen_names: set[str] = set()
     for idx, (name, audio) in enumerate(references, start=1):
@@ -97,7 +97,7 @@ def _validate_references(references: Iterable[tuple[str, GradioAudio]]) -> list[
             raise ValueError(f"Tên người nói bị trùng: '{label}'. Hãy đặt tên khác nhau để đọc timeline rõ ràng.")
         seen_names.add(normalized)
 
-        samples = prepare_gradio_audio(audio)
+        samples = prepare_audio(audio)
         if samples.size < int(1.0 * SAMPLE_RATE):
             raise ValueError(
                 f"Mẫu giọng của '{label}' nên có ít nhất 1 giây tiếng nói; khuyến nghị 3–5 giây rõ tiếng."
@@ -109,14 +109,14 @@ def _validate_references(references: Iterable[tuple[str, GradioAudio]]) -> list[
     return prepared
 
 
-def _prepare_target(target_audio: GradioAudio, target_video) -> tuple[np.ndarray, str]:
+def _prepare_target(target_audio: AudioInput, target_video) -> tuple[np.ndarray, str]:
     if target_audio is not None and target_video is not None:
         raise ValueError("Chỉ chọn một target: audio hoặc video, không dùng đồng thời cả hai.")
     if target_video is not None:
         target = extract_audio_from_video(target_video, SAMPLE_RATE)
         media_kind = "video"
     elif target_audio is not None:
-        target = prepare_gradio_audio(target_audio)
+        target = prepare_audio(target_audio)
         media_kind = "audio"
     else:
         raise ValueError("Chưa có audio hoặc video cần phân tích.")
@@ -127,8 +127,8 @@ def _prepare_target(target_audio: GradioAudio, target_video) -> tuple[np.ndarray
 
 
 def _compute_analysis(
-    references: Iterable[tuple[str, GradioAudio]],
-    target_audio: GradioAudio,
+    references: Iterable[tuple[str, AudioInput]],
+    target_audio: AudioInput,
     target_video,
     threshold: float,
     *,
@@ -266,8 +266,8 @@ def _build_result_note(
 
 
 def analyze_workspace(
-    references: Iterable[tuple[str, GradioAudio]],
-    target_audio: GradioAudio,
+    references: Iterable[tuple[str, AudioInput]],
+    target_audio: AudioInput,
     target_video,
     threshold: float | None,
     *,
@@ -300,8 +300,8 @@ def analyze_workspace(
 
 
 def analyze_many(
-    references: Iterable[tuple[str, GradioAudio]],
-    target_audio: GradioAudio,
+    references: Iterable[tuple[str, AudioInput]],
+    target_audio: AudioInput,
     target_video,
     threshold: float | None,
     *,
@@ -374,8 +374,8 @@ def analyze_many(
 
 
 def analyze(
-    reference_audio: GradioAudio,
-    target_audio: GradioAudio,
+    reference_audio: AudioInput,
+    target_audio: AudioInput,
     threshold: float,
     *,
     speaker_label: str = "Người nói tham chiếu",
