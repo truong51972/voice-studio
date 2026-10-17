@@ -1,9 +1,10 @@
 # Portable projects
 
-Use **Projects → New**, give the project a name, and **Add media** to select
+Use **Projects → New**, give the project a name, and **Import media** to select
 multiple recordings. **Open project** and **Recent** reopen existing projects.
-The current GUI still queues STT per file; the integrated project timeline and
-Auto-first Speakers inspector are the next parts of [refactor #26](project_workspace_refactor.md).
+The project editor uses one sequential source track/player, with source boundaries,
+basic trim/move controls, waveform peaks and speaker/STT annotations. Auto Detect
+is the default Speakers workflow; see [QA evidence](project_workspace_refactor.md).
 
 ## Storage and backups
 
@@ -19,13 +20,15 @@ to a writable location such as `D:\VoiceStudio\`; there is no fallback. A normal
 Program Files installation is unsuitable without explicit write permission.
 Runtime and model caches are separate and are not moved by this change.
 
-Each project contains `project.json`, immutable per-run STT files in `results/`
-and revisioned transcript documents in `reviews/`. Media remain **external absolute
+Each project contains `project.json`, immutable per-analysis files in `results/`,
+revisioned transcript documents in `reviews/`, and waveform/embedding/job caches
+in `cache/`. Hashing, probing and inference run in a shared worker queue. Media remain **external absolute
 path references**, with SHA-256 fingerprints; no multi-GB files are copied.
 Moving just the app folder preserves metadata/results but does **not** move the
 original media. Use **Relink** after moving media. Identical content retains the
 media ID, clips, cached inference and review; changed content clears the current
-cache key, duration/type and trims, and requires a new analysis. Old result files
+cache key and trims, invalidates reference regions, probes new duration/type and
+requires a new analysis. Old result files
 remain available on disk. Relinking is blocked during batch processing.
 
 Before upgrading, back up the entire `.projects/` folder and the separately stored
@@ -39,8 +42,9 @@ folder yourself; external media are unaffected.
 
 ## Manifest migration and timeline contracts
 
-Version 2 stores the stable project ID, name, settings, media entries and ordered
-clips separately. On first opening v1, the app writes the original manifest bytes
+Version 2 stores stable project/media/clip/speaker/reference/analysis IDs, name,
+settings, ordered clips, source-cluster mappings, merge aliases and proposal states.
+Large inference outputs and summary review snapshots remain outside the manifest. On first opening v1, the app writes the original manifest bytes
 to `project.v1.backup.json` **before** atomically replacing `project.json`. It
 preserves media IDs, cache keys, results and reviews. Unsupported versions fail
 without modifying the manifest. An interrupted migration can be retried; its
@@ -57,9 +61,25 @@ Combined Markdown/TXT exports follow clip order, include explicit file/range
 boundaries and retain source-relative timestamps. They include overlapping
 transcript segments with timestamps clipped to the range; partially selected
 segments retain their text for human review rather than inventing word cuts.
-GUI trim/reorder and shared project playback are still pending.
+Combined SRT uses project timestamps and names each source in its cues. Combined
+JSON retains explicit clip/media IDs, source ranges/project starts, source links
+and raw/reviewed snapshots. Separate source exports also support a chosen range.
+Partially selected segments retain full text for human review. The GUI shares
+this time mapping for playback, tracks, reference selection and export.
 
 Manifest/results/reviews use unique temporary files plus atomic replacement.
 Running jobs recover as interrupted on reopen, while missing/changed media require
 relinking. Transcript edits remain separate from raw model hypotheses. No database,
 cloud upload or user account is required.
+
+Auto/Manual speakers persist across timeline edits. Confirmed project merges
+commit aliases/mappings/references in one manifest write; historical transcript
+IDs resolve through aliases instead of partially rewriting all review files.
+Anonymous cluster numbers from separate files are never treated as identities.
+
+Task records retain failed/cancelled/interrupted states. Switching projects stops
+and reaps old jobs first; reopening validates source fingerprints asynchronously.
+Use task controls again to retry, **Retry selected reference** for a failed region,
+or **Import media** after an interrupted import. No partial source list is committed
+if one file in a multi-import fails. Cached inference is reactivated only after
+worker-side content verification, including same-size/mtime file edits.

@@ -17,8 +17,8 @@ production releases.
 The baseline Locator model files are bundled (roughly 96 MiB); STT
 models are **not** bundled or downloaded until a user selects Install
 in the Model Manager. Windows STT builds use \`--with-stt\` to bundle
-Python/CTranslate2 runtime libraries; pyannote diarization remains
-experimental/developer-only and is not included in the package.
+Python/CTranslate2 runtime libraries; pyannote diarization is an explicit optional runtime build (see below),
+not included in the default one-click/STT package.
 
 Run \`voice-studio.exe --smoke-test\` on a real machine or the packaged
 candidate workflow; use \`voice-studio.exe --diagnostics\` from a terminal
@@ -36,7 +36,7 @@ restore it beside a freshly extracted executable when upgrading. Keep original
 external media or relink their new locations. Release ZIPs exclude `.projects/`.
 See [portable project backup/recovery](projects.md).
 
-- Verify actual audio/video playback, seek, microphone recording and
+- Verify actual audio/video playback, sequential seek, source-range references and
   still-responsive UI after >60 minutes.
 - Install Whisper Small through Model Manager, transcribe a consented
   Vietnamese clip on CPU and confirm timestamps/export.
@@ -50,3 +50,19 @@ Linux/WSL PyInstaller builds create Linux binaries, **not Windows EXEs**.
 No cross-compilation claim. ZIP timestamps/file ordering are normalized,
 but binary byte-for-byte reproducibility also depends on frozen DLL/wheel
 versions. Keep release candidate unsigned until real Windows QA.
+
+### Explicit Community-1 runtime build
+
+The default one-click/STT package does not bundle optional pyannote/Torch. For an
+Auto Detect-capable native candidate, explicitly install and collect that runtime:
+
+```powershell
+uv sync --dev --extra stt --extra diarization
+uv run python scripts/build.py --with-stt --with-diarization
+```
+
+This includes runtime packages, not Community-1 model weights or tokens. Obtain a
+complete local Community-1 folder separately under its upstream terms and choose
+it in Speakers. Verify Torch/audio codec DLL compatibility and real inference on
+the candidate; a successful build or import smoke is not model/playback acceptance.
+The build fails before packaging if requested runtime packages are unavailable.

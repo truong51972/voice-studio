@@ -21,3 +21,9 @@ improves recognition: aggressive filters may remove quiet speech.
 No Ollama server is started or model downloaded automatically. A local
 model must be available on loopback \`127.0.0.1:11434\`. Cloud LLM providers
 are intentionally *not* integrated in this first optional enhancement.
+
+The project editor's **Whole project** scope builds an ordered, trimmed review
+snapshot for a local summary. Every cited segment ID includes its clip ID; each
+item retains media ID, external source and source-relative start/end anchors.
+Repeated/independent source clocks therefore remain distinguishable. Summary
+snapshots and drafts live within the project and do not change STT/review data.

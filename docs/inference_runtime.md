@@ -1,26 +1,35 @@
 # Inference task runtime
 
-\`TaskManager\` is a standard Python process-isolated queue, driven by nonblocking
-\`poll()\`; the Qt \`AnalysisWorker\` bridge emits small state/progress notifications
-from a 75ms timer. On Windows it uses the \`spawn\` multiprocessing context.
-The app's Locator calls execute in the subprocess instead of Qt's UI thread.
-Existing UI and matching math are unchanged.
+The PySide6 editor injects one `ProjectSession` into its panels. Its single
+`TaskManager(cpu_concurrency=1)` serializes project work, including optional
+CPU/GPU-backed models, instead of launching competing managers per inspector.
+The generic runtime and standalone legacy panel APIs remain available to callers.
 
-Per-job input is a JSON-safe payload containing file paths, profile, threshold
-and short reference descriptions (never raw PCM). The child saves JSON output
-to a temporary directory; the host reconstructs only the segment/similarity
-data required for display. The original \`AnalysisBundle.target\` waveform is
-intentionally not carried across the process boundary.
+Workers use the spawn multiprocessing context. Requests carry paths, IDs and
+scalar settings, never PCM or live model/Qt objects. Import/probe/fingerprint,
+waveform peaks, bounded source references, streamed Locator, STT, diarization,
+comparison and local summaries all run outside the UI thread. Summary input is a
+cached review-snapshot path. Original/exclusive speaker turns and edited reviews
+remain distinct from immutable raw results.
 
-States are queued/running/completed/failed/cancelled. \`cancel()\` terminates the
-subprocess and cleans temporary artifacts. One GPU slot is always reserved;
-CPU concurrency is configurable. The runner does not claim native CUDA support,
-inference progress percentage, persistent resume or a remote execution API.
+Staging lives in `<project>/cache/jobs/<job-id>/`; successful analysis outputs are
+atomically committed to `results/` and revisions to `reviews/`. No project data
+uses an OS profile or system temporary folder. The separate model/runtime caches
+retain their previous storage contract. The historical generic non-project runner
+may still use temporary folders when invoked directly by other callers.
 
-Qt closes the manager on completion/cancellation. The GUI supports Cancel
-while the task is running. For real long recordings progress currently indicates
-loading/running/completed stages only, because the upstream Locator pipeline
-does not provide per-window hooks yet.
+The nonblocking Qt timer polls queued/running/completed/failed/cancelled states and
+worker stage messages (not invented percentage estimates). Project jobs and import
+operation states persist; reopening changes active states to interrupted and
+checks source bytes in a worker. Retry uses normal task controls. Cached activation
+checks fingerprints asynchronously and performs no model inference. Moving or
+trimming clips does not change source inference keys.
 
-Future #6 uses the same subprocess protocol for STT, and #8 introduces
-durable project persistence/retry on top of the runner.
+Cancel terminates the worker process tree (POSIX process group / Windows taskkill),
+reaps the process and removes only staging artifacts. Changing projects cancels
+old jobs before replacing their session, so late outputs cannot enter the new
+project. Shutdown saves the project and leaves results/reviews/caches intact.
+
+Native Windows process cleanup, codecs, optional pyannote/Torch/CUDA and real
+long-recording memory/throughput require explicit release QA. Synthetic streaming
+regressions certify bounded PCM/timestamp contracts, not real-model performance.

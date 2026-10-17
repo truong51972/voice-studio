@@ -1,58 +1,70 @@
-# Issue #26 implementation status
+# Issue #26 implementation and QA
 
-[Issue #26](https://github.com/truong51972/voice-studio/issues/26) is one PySide6
-refactor delivered in **one implementation PR**, with topical commits and
-`Closes #26` in its eventual description. Do not merge/close it until integrated
-acceptance passes. WebApp migration #25 stays deferred. No implementation PR has
-been created by this initial work.
+[Issue #26](https://github.com/truong51972/voice-studio/issues/26) is delivered in
+**one implementation PR**, including its earlier foundation commit. Keep that PR
+in draft until integrated native/model acceptance passes; `Closes #26` must only
+close the issue when the approved PR is merged. WebApp migration #25 stays deferred.
 
-## Implemented foundation
+## Implemented
 
-- Portable root resolution independent of cwd and bundled-resource paths;
-  actionable write failures, `.gitignore`, build protection and release exclusion.
-- Projects inspector New/Open/Recent controls using portable storage.
-- Initial v2 project/media/clip/settings persistence; exact v1 backup before
-  migration, atomic writes, legacy cache/review retention and interrupted jobs.
-- Qt-independent sequential clip/time mapping, trim/reorder APIs and ordered
-  source-bounded report exports. These APIs are not yet the GUI playback clock.
-- Shared chunked FFmpeg decoder for STT, Locator audio/video and bounded source
-  intervals. Real generated AAC/M4A and WAV/FLAC decoding are regression tested.
-- Original overlap-aware diarization and separately mapped exclusive turns;
-  transcript assignment consumes exclusive output when present.
-- Relinked transcript edits save against the active document, preventing unrelated
-  or stale documents from overwriting reviews.
+- Project-first PySide6 launch, portable New/Open/Recent, multi-select media import,
+  save, external source library and async probe/fingerprint/relink.
+- `.projects/` beside repo/executable independently of cwd/_internal; actual write
+  checks, no profile fallback, v1 backup/migration, atomic writes, build protection
+  and exclusion of private projects from release ZIPs.
+- V2 media/clips/settings/speakers/reference regions/analysis records and review
+  revisions. Immutable raw files live outside the manifest. Failed/cancelled and
+  interrupted job states persist; imports commit atomically.
+- One player and shared source/project time mapping, ordered playback/seek/trim,
+  explicit move controls, distinguishable clocks, range preview, zoom/pan and
+  source/speaker/STT/match tracks with cached streamed waveform peaks.
+- Auto-first optional local Community-1; original overlaps and separate exclusive
+  turns, stable per-analysis/source cluster mappings and preserved manual edits.
+- Source-interval references (no file/microphone enrollment), multiple references,
+  bounds/short/silence/known-overlap validation, bounded FFmpeg decoding and
+  fingerprint/range/model-revision embedding cache. No pyannote requirement for
+  manual matching. Unknown overlap requires listening, not invented certainty.
+- Bounded-PCM CAM++/ERes2NetV2 matching, clean representative/reference comparison,
+  ambiguous proposals, explicit merge/split confirmation and persistent aliases.
+- One serialized project queue, cancellation/process cleanup and project-switch
+  isolation. Source inference is reused across timeline edits after asynchronous
+  fingerprint verification. Same-size/mtime source edits are detected.
+- Preserved STT/language/VAD/word controls and transcript search/edit/split/merge,
+  source selection exports and ordered TXT/Markdown/SRT/JSON project exports.
+  Local Ollama supports selected-source or ordered project review snapshots with
+  source-specific citation anchors; raw transcripts are never replaced.
+- Optional `--with-diarization` packaging path and actionable missing runtime/model
+  errors; no automatic model/token/cloud dependency is introduced.
 
-## Remaining in the same implementation PR
+## Deterministic evidence
 
-1. Make launch project-first; add file/toolbar actions, source library and
-   asynchronous import/probing/fingerprints. Wire actual media type/duration to
-   the v2 store. Large-file hashing currently still runs synchronously.
-2. Wire the sequential project clock to the one player, source/speaker/STT tracks,
-   preview, seek, trim/reorder, zoom/pan and distinct source/project readouts.
-   Add streaming cached waveform peaks and readable Qt playback errors.
-3. Make Auto Detect the default Speakers workflow. Persist project speaker IDs
-   and explicit `(media_id, cluster_id)` mappings, raw task results/settings and
-   speaker corrections. Cluster labels from separate files must never auto-merge.
-4. Replace file/microphone reference enrollment with timeline/typed source ranges,
-   interval preview, multi-region provenance and bounded worker decoding. Validate
-   silence, short/overlapping speech; cache embeddings by content/region/model
-   revision. Keep manual Locator usable without pyannote. The existing Locator
-   still collects the full target PCM array; chunked decoding alone does not
-   complete the long-recording memory requirement.
-5. Add conservative cross-file embedding suggestions and explicit merge/split
-   confirmation; persist mappings through reimport/reorder/reopen. Similarity must
-   not be presented as identity verification or calibrated confidence.
-6. Centralize application task dispatch, persist per-task state/results under each
-   project, and wire cancellation/retry/project-switch protection for every panel.
-   Existing panels still own independent managers and temporary task folders.
-7. Integrate all review/export paths and update final Help/docs for the completed
-   Auto-first workflow. Extend v2 metadata with speaker/reference/task records.
+`QT_QPA_PLATFORM=offscreen uv run poe test`, `uv run poe check`, and
+`git diff --check` are the local/CI checks. New tests cover real generated AAC/M4A
+imports and bounded source extraction, WAV/FLAC regression, actual stream-based
+media kind, portable roots/permissions, migration/write failures, speaker mappings,
+confirmed aliases/splits, references, cache invalidation, exports, task cancellation,
+project switches and Qt import/trim/reorder/save/reopen flows.
 
-## Acceptance evidence still required
+The 61-minute Locator/STT checks generate synthetic PCM chunks and assert bounded
+windows/timestamps; they do **not** benchmark a real 61-minute recording or model.
+The frozen-root test simulates PyInstaller; it does **not** certify Windows onedir.
 
-Model-free Linux/offscreen tests cover deterministic storage/time/codec behavior;
-the frozen-root test simulates packaging and is **not** a real Windows build test.
-No Windows native GUI/playback, explicitly installed Community-1 multi-speaker
-sample, embedding accuracy, cross-source matching or real >60-minute workflow has
-been signed off. Check every acceptance item in the issue on the one PR, attach
-actual test evidence, and leave unrun items open.
+Linux Qt offscreen screenshots use deterministic sine-wave/annotation/transcript
+fixtures (no real-model claim):
+
+- [Auto / timeline](qa/issue-26-auto.png)
+- [Manual source reference](qa/issue-26-manual.png)
+
+## Integrated acceptance still open
+
+- Real Windows onedir: `.projects/` next to exe, writable/read-only installations,
+  app-folder move, native Qt codec/runtime errors, three AAC M4A files, sequential
+  audio/video playback and seeking across source/trim boundaries.
+- Explicitly installed Community-1 on controlled real multi-speaker/overlap audio,
+  plus real CAM++/ERes2NetV2 reference matching and cross-file proposal quality.
+- Real >60-minute GUI/model workflow with measured responsiveness, memory,
+  cancellation and reopen/retry; optional Torch/codec/CUDA native compatibility.
+
+No Windows, real multi-speaker accuracy or real long-recording success is claimed.
+Use the issue's full acceptance checklist on the one PR and attach measured
+results before merge; model-free CI cannot sign off these manual gates.

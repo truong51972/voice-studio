@@ -2,23 +2,23 @@
 
 A **local-first PySide6 desktop editor** for audio/video analysis, bootstrapped from the working **Voice Locator v0.5.1** native editor with the same media-first UI.
 
-> **Development preview / v0.1.0:** Locator, offline STT, transcript editing, batch projects and optional diarization/local summarization are implemented in source. CI passes; **real-model accuracy, Windows package and native media/microphone smoke tests are not yet signed off.** See the [Epic and acceptance checklist](https://github.com/truong51972/voice-studio/issues/1).
+> **Development preview / v0.1.0:** Portable projects, a multi-source editor, Auto/Manual speakers, STT review and local summaries are implemented in source. Deterministic Linux regressions cover the new workflows; **real-model accuracy, Windows package and native media/model smoke tests are not yet signed off.** See the [Epic and acceptance checklist](https://github.com/truong51972/voice-studio/issues/1).
 
 ## Features available now
 
-- Resizable dark/cyan workspace with native audio/video preview, inspector, bottom speaker timeline and shared playhead.
-- Import local audio or video, FFmpeg media extraction, seek, scrub, overlay matching speaker regions.
-- Register 1–3 known reference speakers (file upload or microphone recording).
-- Two local embedding profiles: CAM++ (Fast) and ERes2NetV2 (Accurate); profile threshold, per-speaker matching and segment details.
-- Offline/private Locator analysis; no cloud upload required.
-- Optional offline **faster-whisper STT** (Vietnamese/English/auto language selection), word timestamps and source-aligned segments.
-- Editable, searchable transcripts; split/merge, speaker labels, common-player seek and TXT/SRT/Markdown/JSON exports.
-- Multi-file local project queue, per-file cache and reviewed transcripts, combined Markdown/TXT exports.
-- Portable **Projects → New/Open/Recent** storage in `.projects/` beside the app; backed-up v1→v2 migration and source-local clip mapping.
-- Optional local Community-1 diarization, anonymous speaker turns and editable attribution.
-- Optional localhost Ollama source-cited **AI draft** summaries and separate FFmpeg audio denoise output.
+- Project-first New/Open/Recent with portable `.projects/` storage beside the app.
+- Multi-select audio/video import, external source links, fingerprint checks and relinking.
+- Resizable dark/cyan source library, one preview/player, inspector and ordered source/speaker/STT timeline.
+- Sequential playback/seek, basic trim and move controls, dual source/project clocks, cached waveform peaks, zoom/pan and range selection.
+- **Auto Detect Speakers** by default using optional explicitly installed local Community-1; original overlap and separate exclusive turns remain available.
+- Optional **manual references from source intervals**: type or drag a range, preview, name/choose a project speaker and embed. Multiple regions per speaker; no reference upload or microphone enrollment.
+- CAM++ (Fast) / ERes2NetV2 (Accurate) matching with bounded PCM windows, editable labels/colors, conservative comparison proposals and confirmed merge/split.
+- Offline faster-whisper STT (Vietnamese/English/auto), VAD and word timestamps; searchable, editable transcripts and separate raw AI results.
+- TXT/SRT/Markdown/JSON exports for a source/selection or ordered combined project, with explicit source boundaries and provenance.
+- One serialized project worker queue, cancellation/retry, persistent failed/interrupted state, backed-up v1 migration and atomic saves.
+- Optional localhost Ollama **AI draft** summaries of a source or ordered project review snapshot, with source-specific citations; separate FFmpeg denoise utility.
 
-The [issue #26 refactor](https://github.com/truong51972/voice-studio/issues/26) has started with portable storage, timeline domain contracts, shared FFmpeg AAC/M4A decoding and preservation of overlap/exclusive diarization. The GUI still uses the existing single-source player and reference enrollment. See [implementation status](docs/project_workspace_refactor.md) for remaining work in the **single implementation PR**; integrated acceptance is not complete.
+The [single-PR issue #26 refactor](https://github.com/truong51972/voice-studio/issues/26) retains PySide6 and leaves WebApp migration #25 deferred. See [implementation and QA evidence](docs/project_workspace_refactor.md); native Windows, real-model and real long-recording acceptance must pass before merge/release.
 
 **Voice matching is not anonymous-speaker diarization or identity verification.** Cosine similarity is not a probability.
 
@@ -48,16 +48,15 @@ Model management: [docs/model_manager.md](docs/model_manager.md). Open **Models*
 
 ## Workflow
 
-1. In **Workspace**, open the target audio or video.
-2. Under **Speakers**, add 1–3 known reference recordings.
-3. Under **Analysis**, select CAM++/ERes2NetV2 and threshold; select **Analyze**.
-4. Inspect matching speaker clips on the timeline, seek by clicking, and review segment details.
-5. For STT, select the **STT** inspector, choose an installed model/language, then **Transcribe**. Edit segments and export the reviewed result.
-6. Use **Projects** for a batch of recordings, **Diarization** for optional anonymous speaker clustering, or **Summary** for explicit localhost Ollama-generated drafts.
+1. **New/Open/Recent Project**, then **Import media** (multiple recordings). Sources populate the library and ordered timeline without being copied.
+2. Select a source, play/seek across clip boundaries, move/trim clips, zoom/pan or drag/type a source range. Source and project clocks are separate.
+3. Under **Speakers → Auto Detect**, choose a complete locally installed Community-1 folder, then **Auto Detect Speakers**. Install its optional runtime with `uv sync --dev --extra diarization`; no token or automatic model download is used. Toolbar scope selects one source or the whole project.
+4. Optionally **Add manual reference**: preview a clean source interval, choose/type a speaker label, confirm one voice, and add it. Choose a CAM++/ERes2NetV2 profile in **Analysis**, then **Match references**. Manual matching does not require pyannote. Compare project speakers to review merge proposals.
+5. Under **STT**, select an installed model/language and **Transcribe**. Review text/speakers, split/merge and export the source/selection; **Export all** follows project clip order and trims.
+6. **Summary** generates explicit source-cited localhost Ollama drafts. **Raw AI** retains immutable inference separately from corrections. **Cancel jobs** stops the shared queue; rerun the task controls or retry a selected reference after fixing an error.
+7. **Save** and reopen: clips, source links, speaker mappings/references, raw results, review revisions and interrupted states persist.
 
-In **Projects**, choose **New**, name the project, then **Add media** to import multiple external recordings. **Open project** and **Recent** reopen portable workspaces. Source checkouts store data in `<repo>/.projects/` regardless of the working directory; packaged builds use `<exe-directory>/.projects/`. The portable folder must be writable. Back up the entire `.projects/` folder and your external media before upgrades or moves; moving only the app does not move those recordings. Model/runtime caches retain their separate locations. See [Projects](docs/projects.md) for migration and recovery.
-
-The player, overlay, seek/playhead and QSplitter structure intentionally remain equivalent to Voice Locator v0.5.1. The educational page has been replaced with a general Help tab.
+Source checkouts use `<repo>/.projects/` independently of cwd; onedir builds use `<exe-directory>/.projects/`. The portable folder must be writable. Back up the entire `.projects/` folder and external media before upgrades/moves: moving only the app does not move the recordings. Runtime/model cache paths remain separate. See [Projects](docs/projects.md) for backup and migration.
 
 ## Repo
 

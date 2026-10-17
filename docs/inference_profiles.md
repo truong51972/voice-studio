@@ -28,7 +28,7 @@ Recommended follow-up experiments:
 1. Compare `fast` and `accurate` on the same labeled recordings.
 2. Sweep thresholds independently per profile.
 3. Stratify results by reference duration and noise level.
-4. Add multi-reference enrollment per speaker and compare it with single-reference enrollment.
+4. Compare multiple source reference regions per project speaker with a single clean interval.
 5. Evaluate VAD-based speech gating against the current RMS gate.
 6. Only add a `maximum`/ensemble profile if the benchmark shows a meaningful gain over ERes2NetV2.
 
