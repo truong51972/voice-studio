@@ -67,7 +67,7 @@ class STTPanel(QWidget):
         self.vad = QCheckBox("Speech filtering (VAD)")
         self.vad.setChecked(True)
         self.words = QCheckBox("Word timestamps")
-        self.export_selection = QCheckBox("Export selected source range only")
+        self.export_selection = QCheckBox("Export selected source range only", self)
         settings.addRow(self.vad)
         settings.addRow(self.words)
         # Kept as a compatibility flag for existing integrations; the visible
