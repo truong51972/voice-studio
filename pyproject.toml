@@ -23,7 +23,7 @@ dependencies = [
   "sherpa-onnx==1.13.8",
   "sherpa-onnx-core==1.13.8",
   "soundfile>=0.12,<1",
-  # Keep the native Torch family ABI-compatible; CPU is the release baseline.
+  # CUDA 12.8 wheel also runs on CPU-only hosts; GPU use is opt-in after model probe.
   "torch>=2.8,<2.9",
   "torchaudio>=2.8,<2.9",
   "torchcodec>=0.7,<0.8",
@@ -50,12 +50,12 @@ required-environments = [
 ]
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
-torchaudio = { index = "pytorch-cpu" }
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
 
 [[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
 explicit = true
 
 [dependency-groups]
