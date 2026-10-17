@@ -68,7 +68,7 @@ def transcribe(
                 [str(ffmpeg_executable()), "-nostdin", "-hide_banner", "-i", str(media_path)],
                 stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=20,
             )
-            match = re.search(r"Duration:\\s*(\\d+):(\\d+):(\\d+(?:\\.\\d+)?)",
+            match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)",
                               result.stderr.decode(errors="replace"))
             if match:
                 total_seconds = int(match[1]) * 3600 + int(match[2]) * 60 + float(match[3])
