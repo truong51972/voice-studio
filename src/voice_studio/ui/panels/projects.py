@@ -169,16 +169,6 @@ class ProjectsPanel(QWidget):
             self.project.save_review(self.active_id, document, settings_key=self._active_review_key)
 
     def _export(self):
-        if not self.project:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Export ordered project", "",
-                                              "Markdown (*.md);;Plain text (*.txt);;SubRip (*.srt);;JSON (*.json)")
-        if path:
-            try:
-                kind = Path(path).suffix.lstrip('.').lower() or 'md'
-                if not Path(path).suffix:
-                    path += '.md'
-                Path(path).write_text(self.project.combined_export(kind), encoding="utf-8")
-                self.status.setText(f"Exported {Path(path).name} · Boundary text includes only fully timed words; unavailable text omitted.")
-            except (ValueError, OSError) as exc:
-                self.status.setText(str(exc))
+        # Both File → Export project transcript and the STT result action use
+        # one scope-aware export implementation. No independent save path.
+        self.stt_panel._export(scope="project")
