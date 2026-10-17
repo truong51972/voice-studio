@@ -22,9 +22,11 @@ CPU inference can take considerable time, especially Large v3. Under **Settings 
 The model's VAD and optional word timestamp switches are passed to the
 backend, not just rendered as decorative UI.
 
-Current scope: local first pass with segment timestamps, SQLite-free,
-Qt process worker and export-ready structured JSON. User correction
-and SRT/Markdown export are issue #7; multi-file persistence is #8.
+STT jobs show a compact progress strip near the preview: source filename, selected model, actual CPU/CUDA device, processing stage, **completed audio duration / source duration**, elapsed runtime and ETA when enough completed chunks establish throughput. Model loading and the first chunk remain indeterminate rather than jumping to a fabricated percentage. Whole-project transcription shows **Source N/M**; that percent is for the current source only, not the entire project. Cancel stops the subprocess while previously saved transcript reviews remain available.
+
+After processing, open the **STT** inspector and use **Export transcript…** next to the reviewed result. Choose current source, selected source range or clip-ordered whole project. The File menu has the same export commands. TXT, Markdown, SRT and JSON preserve reviewed edits. **View → Show subtitles** toggles time-aligned soft subtitles in the media preview; no burned-in video is created.
+
+Current scope: offline bounded-chunk STT with project persistence and review/export.
 GPU support is enabled behind a device-specific native inference probe; actual hardware and packaged Windows acceptance is still pending. Current real-model
 accuracy in Vietnamese/English is *unmeasured* until #12 benchmarks
 and smoke tests run.
