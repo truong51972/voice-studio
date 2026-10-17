@@ -24,6 +24,7 @@ class InferenceDefaults(BaseModel):
     vad: bool = True
     word_timestamps: bool = False
     chunk_seconds: int = Field(default=30, ge=5, le=60)
+    beam_size: int = Field(default=5, ge=1, le=20)
 
 
 class ModelDescriptor(BaseModel):

@@ -48,6 +48,9 @@ def test_silent_chunks_do_not_call_inference():
 
 def test_option_controls_are_validated():
     assert STTOptions(language="vi", vad=False, word_timestamps=True).vad is False
+    assert STTOptions().beam_size == 5
+    with pytest.raises(ValueError, match="Beam size"):
+        STTOptions(beam_size=0)
     with pytest.raises(ValueError):
         STTOptions(language="xx")
     with pytest.raises(ValueError):

@@ -38,7 +38,8 @@
         "compute_type": "int8",
         "vad": true,
         "word_timestamps": false,
-        "chunk_seconds": 30
+        "chunk_seconds": 30,
+        "beam_size": 5
       }
     },
     {
@@ -78,7 +79,8 @@
         "compute_type": "int8",
         "vad": true,
         "word_timestamps": false,
-        "chunk_seconds": 30
+        "chunk_seconds": 30,
+        "beam_size": 5
       }
     },
     {
@@ -118,7 +120,8 @@
         "compute_type": "int8",
         "vad": true,
         "word_timestamps": false,
-        "chunk_seconds": 30
+        "chunk_seconds": 30,
+        "beam_size": 5
       }
     },
     {
@@ -158,7 +161,8 @@
         "compute_type": "int8",
         "vad": true,
         "word_timestamps": false,
-        "chunk_seconds": 30
+        "chunk_seconds": 30,
+        "beam_size": 5
       }
     }
   ]
