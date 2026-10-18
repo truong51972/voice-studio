@@ -36,7 +36,7 @@ class EditorActionsMixin:
         add("import_subtitles", "Import subtitles (.vtt/.srt)", "File", self.stt_panel._import_subtitles)
         add("save", "Save project", "File", self._save, "Ctrl+S")
         add("export", "Export project transcript", "File", self.projects_panel._export, "Ctrl+Shift+E")
-        add("export_stt", "Export transcript", "File", self.stt_panel._export)
+        add("export_stt", "Export transcript", "File", self.stt_panel._choose_export)
 
         add("move_back", "Move clip earlier", "Edit", lambda: self._move_clip(-1))
         add("move_forward", "Move clip later", "Edit", lambda: self._move_clip(1))
