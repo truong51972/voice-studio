@@ -37,8 +37,11 @@ class EditorLayoutMixin:
         self.scope.addItems(['Selected source', 'Whole project'])
         toolbar.addWidget(self.scope)
         self.analyze_button = self._button('Auto Detect Speakers', self._start_analysis, toolbar)
-        self.analyze_button.setObjectName('primaryButton')
+        # Speaker detection already lives in Speakers and Process; prioritize STT.
+        self.analyze_button.hide()
+        self.stt_panel.run_button.setObjectName('primaryButton')
         self.cancel_button = self._button('Cancel jobs', self.session.cancel, toolbar)
+        self.cancel_button.hide()
         self.models_button = self._button('Models', self._open_models, toolbar)
         self.models_button.hide()
         root.addLayout(toolbar)
