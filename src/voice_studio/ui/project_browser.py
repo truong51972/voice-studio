@@ -142,6 +142,9 @@ class ProjectBrowser(QWidget):
         for widget in (self.open_button, self.rename_button, self.delete_button, self.refresh_button):
             actions.addWidget(widget)
         layout.addLayout(actions)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        layout.addWidget(self.status)
         self.refresh()
 
     def refresh(self):
