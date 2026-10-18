@@ -2,7 +2,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtGui import QKeySequence
-from PySide6.QtWidgets import QMainWindow, QPushButton
+from PySide6.QtWidgets import QDialog, QMainWindow, QPushButton
 
 from voice_studio.ui import build_app, create_application
 
@@ -21,6 +21,24 @@ def test_project_first_menu_structure_and_shortcuts():
         assert window.actions["play"].shortcut() == QKeySequence("Space")
         assert window.actions["models"].text() == "Models"
         assert window.pages.currentIndex() == 0
+    finally:
+        window.close()
+        app.processEvents()
+
+
+def test_dialog_titles_omit_parent_menu_breadcrumbs(monkeypatch):
+    app = create_application([])
+    window = build_app()
+    captured = []
+    def capture_dialog(dialog):
+        captured.append(dialog.windowTitle())
+        return 0
+    monkeypatch.setattr(QDialog, "exec", capture_dialog)
+    try:
+        window._show_documentation()
+        assert captured == ["Documentation"]
+        # The adjacent Manage models button already provides the navigation.
+        assert window.diarization_panel.model_folder.placeholderText() == "Community-1 model directory"
     finally:
         window.close()
         app.processEvents()
