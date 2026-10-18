@@ -150,7 +150,10 @@ class ProjectsPanel(QWidget):
                 for task, label in (("stt", "STT"), ("diarization", "Speakers"),
                                     ("locator", "Match")):
                     record = latest_by_task.get(task)
-                    if record and record.state == "completed":
+                    if ((record and record.state == "completed") or
+                            (task == "stt" and not record and item.status == "completed")):
+                        # Older portable projects stored STT completion directly
+                        # on the media item, not as an AnalysisRecord.
                         labels.append(label + " ✓")
                 if latest and latest.state in ("running", "pending", "queued", "failed"):
                     labels.append(f"{latest.task}: {latest.state}")
@@ -163,6 +166,8 @@ class ProjectsPanel(QWidget):
                 duration = f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
             values = (Path(item.source).name, state, duration or "Probing…")
             detail = " · ".join(f"{record.task}: {record.state}" for record in records)
+            if item.status == "completed" and "stt" not in latest_by_task:
+                detail = "stt: completed" + (" · " + detail if detail else "")
             hint = "\n".join(filter(None, [str(item.source), detail, item.error,
                                             latest.error if latest else None]))
             for column, value in enumerate(values):
