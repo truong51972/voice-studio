@@ -136,7 +136,7 @@ class EditorActionsMixin:
 
     def _show_documentation(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Voice Studio · Documentation")
+        dialog.setWindowTitle("Documentation")
         dialog.resize(730, 620)
         layout = QVBoxLayout(dialog)
         layout.addWidget(self._help())
