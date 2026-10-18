@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, Q
 
 from .panels.stt import STTPanel
 from .panels.projects import ProjectsPanel
+from .project_browser import ProjectBrowser
 from .panels.diarization import DiarizationPanel
 from .panels.speakers import SpeakersPanel
 from .panels.summary import SummaryPanel
@@ -47,24 +48,11 @@ class EditorLayoutMixin:
         root.addLayout(toolbar)
         self.pages = QStackedWidget()
         root.addWidget(self.pages, 1)
-        picker = QWidget()
-        picker_layout = QVBoxLayout(picker)
-        picker_layout.addStretch()
-        title = QLabel('<h1>Open your audio/video project</h1>')
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        picker_layout.addWidget(title)
-        controls = QHBoxLayout()
-        controls.addStretch()
-        for text, callback in (('New project', self.projects_panel._new), ('Open project', self.projects_panel._open), ('Recent projects', self.projects_panel._recent)):
-            self._button(text, callback, controls)
-        controls.addStretch()
-        picker_layout.addLayout(controls)
-        self.picker_status = QLabel()
-        self.picker_status.setWordWrap(True)
-        self.picker_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        picker_layout.addWidget(self.picker_status)
-        picker_layout.addStretch()
-        self.pages.addWidget(picker)
+        self.project_browser = ProjectBrowser(self)
+        self.project_browser.newRequested.connect(self.projects_panel._new)
+        self.project_browser.openRequested.connect(self.projects_panel._open_folder)
+        self.picker_status = self.project_browser.status
+        self.pages.addWidget(self.project_browser)
         editor = QWidget()
         editor_layout = QVBoxLayout(editor)
         editor_layout.setContentsMargins(0, 0, 0, 0)
