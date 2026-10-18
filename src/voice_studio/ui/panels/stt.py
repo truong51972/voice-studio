@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from ...model_registry import descriptors, get_model, preflight
 from ...task_runtime import TaskManager, TaskRequest
 from ...transcript import TranscriptDocument, export_text
+from ...subtitle_formats import parse_subtitles
 from ..timecode import _fmt_time
 
 
@@ -96,6 +97,10 @@ class STTPanel(QWidget):
         self.export_scope.addItem("Whole project · clip order", "project")
         self.export_scope.setToolTip("Current source uses source time; whole project follows clip trims/order.")
         reviewed_header.addWidget(self.export_scope)
+        self.import_button = QPushButton("Import .vtt/.srt…")
+        self.import_button.setToolTip("Load standard subtitles as a new reviewed cue track; raw STT is preserved.")
+        self.import_button.clicked.connect(self._import_subtitles)
+        reviewed_header.addWidget(self.import_button)
         self.export_button = QPushButton("Export transcript…")
         self.export_button.clicked.connect(self._export)
         self.export_button.setEnabled(False)
@@ -371,6 +376,32 @@ class STTPanel(QWidget):
         self._render()
         self.documentChanged.emit()
 
+    def _import_subtitles(self) -> None:
+        if self.document is None:
+            self.status.setText("Transcribe or open an existing reviewed source before importing subtitles.")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import subtitle cues", "",
+            "Subtitle files (*.vtt *.srt);;WebVTT (*.vtt);;SubRip (*.srt)",
+        )
+        if not path:
+            return
+        kind = Path(path).suffix.lower().lstrip(".")
+        if kind not in ("vtt", "srt"):
+            self.status.setText("Choose a .vtt or .srt subtitle file")
+            return
+        try:
+            cues = parse_subtitles(Path(path).read_text(encoding="utf-8-sig"), kind)
+            if not cues:
+                raise ValueError("Subtitle file has no valid cues")
+            self.editingStarted.emit()
+            self.document.load_subtitle_cues(cues)
+            self._render()
+            self.documentChanged.emit()
+            self.status.setText(f"Imported {len(cues)} {kind.upper()} cues into reviewed transcript")
+        except (OSError, UnicodeError, ValueError) as exc:
+            self.status.setText(f"Subtitle import failed: {exc}")
+
     def _open_export_folder(self) -> None:
         if self.last_export_path is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_export_path.parent)))
@@ -403,21 +434,22 @@ class STTPanel(QWidget):
         stem = (project.name if scope == "project" and project else
                 Path(self._source or self.document.raw_metadata.get("source", "transcript")).stem)
         suffix = "-project-transcript" if scope == "project" else "-reviewed-transcript"
-        suggested = f"{stem}{suffix}.md"
+        suggested = f"{stem}{suffix}.vtt"
         path, selected = QFileDialog.getSaveFileName(
             self, "Export reviewed transcript", suggested,
-            "Markdown (*.md);;SubRip (*.srt);;Plain text (*.txt);;JSON (*.json)",
+            "WebVTT (*.vtt);;SubRip (*.srt);;Markdown (*.md);;Plain text (*.txt);;JSON (*.json)",
         )
         if not path:
             return
         destination = Path(path)
-        formats = {"md", "txt", "srt", "json"}
+        formats = {"vtt", "srt", "md", "txt", "json"}
         kind = destination.suffix.lstrip(".").lower()
         if not kind:
-            kind = next((extension for extension in formats if f"*.{extension}" in selected), "md")
+            kind = next((extension for extension in ("vtt", "srt", "md", "txt", "json")
+                         if f"*.{extension}" in selected), "vtt")
             destination = destination.with_suffix("." + kind)
         if kind not in formats:
-            self.status.setText("Use .md, .txt, .srt or .json for transcript export")
+            self.status.setText("Use .vtt, .srt, .md, .txt or .json for transcript export")
             return
         try:
             self.before_export()  # Flush currently edited text before combined export.
