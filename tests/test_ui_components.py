@@ -50,9 +50,12 @@ def test_one_shared_qt_player_and_inspector_layout():
         assert window.root_splitter.orientation() == Qt.Orientation.Vertical
         assert window.workspace_splitter.orientation() == Qt.Orientation.Horizontal
         assert window.analysis_page.findChildren(QScrollArea) == []
-        assert [window.inspector_tabs.tabText(i) for i in range(3)] == [
-            "Speakers", "Analysis", "Segments",
+        assert [window.inspector_tabs.tabText(i) for i in range(2)] == [
+            "Transcript", "Speakers",
         ]
+        assert window.inspector_tabs.currentWidget() is window.stt_panel
+        assert all(not window.inspector_tabs.isTabVisible(i)
+                   for i in range(2, window.inspector_tabs.count()))
         assert window.video_widget.overlay.parent() is window.video_widget
         assert window.windowTitle().startswith("Voice Studio")
         # A freshly created Qt slider has a 0..0 range, so duration must
