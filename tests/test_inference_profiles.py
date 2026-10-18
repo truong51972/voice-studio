@@ -28,7 +28,7 @@ def test_profiles_expose_fast_and_accurate_modes():
 
 
 def test_profile_lookup_rejects_unknown_key():
-    with pytest.raises(ValueError, match="Inference profile không hợp lệ"):
+    with pytest.raises(ValueError, match="Invalid inference profile"):
         get_inference_profile("maximum")
 
 
