@@ -1,9 +1,13 @@
 # Issue #26 implementation and QA
 
-[Issue #26](https://github.com/truong51972/voice-studio/issues/26) is delivered in
-**one implementation PR**, including its earlier foundation commit. Keep that PR
-in draft until integrated native/model acceptance passes; `Closes #26` must only
-close the issue when the approved PR is merged. WebApp migration #25 stays deferred.
+[Issue #26](https://github.com/truong51972/voice-studio/issues/26) was delivered
+by merged [PR #27](https://github.com/truong51972/voice-studio/pull/27), and
+#26 is closed as **implemented**. The PySide6 editor remains the product target;
+[WebApp proposal #25](https://github.com/truong51972/voice-studio/issues/25)
+was closed as **not planned**. Merging source work did not complete native-device
+or model-based validation: outstanding release checks are retained in
+[Epic #1](https://github.com/truong51972/voice-studio/issues/1) and
+[the quality checklist](quality.md).
 
 ## Implemented
 
@@ -76,5 +80,7 @@ fixtures (no real-model claim):
   cancellation and reopen/retry; optional Torch/codec/CUDA native compatibility.
 
 No Windows, real multi-speaker accuracy or real long-recording success is claimed.
-Use the issue's full acceptance checklist on the one PR and attach measured
-results before merge; model-free CI cannot sign off these manual gates.
+Keep measured QA evidence and the final hardware/release sign-off attached to
+[Epic #1](https://github.com/truong51972/voice-studio/issues/1); the merged
+implementation PR and closed #26 are not proof that these manual gates passed.
+Model-free CI cannot sign off native-device acceptance.
