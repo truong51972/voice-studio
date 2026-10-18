@@ -273,7 +273,7 @@ def test_pending_inline_text_is_committed_before_result_refresh(tmp_path):
     try:
         window.session.open(project)
         settle(window.session, app)
-        window.inspector_tabs.setCurrentIndex(3)
+        window.inspector_tabs.setCurrentWidget(window.stt_panel)
         window.show()
         app.processEvents()
         table = window.stt_panel.table
