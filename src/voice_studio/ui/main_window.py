@@ -44,6 +44,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self._selection_restored = False
         self._outside_clip = False
         self._pending_review = False
+        self._waveform_cache = {}
         self._player = QMediaPlayer(self)
         self._audio_output = QAudioOutput(self)
         self._player.setAudioOutput(self._audio_output)
@@ -106,6 +107,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self._outside_clip = False
             self._pending_review = False
             self.stt_progress.clear()
+            self._waveform_cache.clear()
             # A new project always starts in the simple reviewed transcript view.
             self.inspector_tabs.setCurrentWidget(self.stt_panel)
             for widget, _label in self._advanced_inspector_pages.values():
@@ -158,6 +160,37 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self._guard(self.playback.select_clip, clip.id)
         self.cancel_button.setEnabled(bool(self.session.jobs))
 
+    def _update_review_timeline(self):
+        """Refresh one source's reviewed text without rereading waveforms/results.
+
+        Called after a user correction; structural changes to clips and completed
+        inference still use the full project timeline builder.
+        """
+        project, item = self.session.project, self._current_item()
+        document = self.stt_panel.document
+        mapping = self.timeline._project_map
+        if not project or not item or not document or not mapping:
+            return
+        annotations = [a for a in self.timeline._annotations
+                       if not (a.get("kind") == "transcript" and a.get("media_id") == item.id)]
+        for clip in project.clips:
+            if clip.media_id != item.id:
+                continue
+            clip_start = mapping.starts[clip.id]
+            clip_end = clip.end(item.duration)
+            for entry in document.edited:
+                start = max(entry.start, clip.source_in)
+                end = min(entry.end, clip_end)
+                if end <= start:
+                    continue
+                annotations.append({
+                    "start": map_time(clip, clip_start, start, item.duration, to_source=False),
+                    "end": map_time(clip, clip_start, end, item.duration, to_source=False),
+                    "lane": "Transcript", "text": entry.text, "color": "#8fa4bd",
+                    "overlap": False, "kind": "transcript", "media_id": item.id,
+                })
+        self.timeline.update_annotations(annotations)
+
     def _render_timeline(self):
         project = self.session.project
         try:
@@ -170,20 +203,31 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         for clip in project.clips:
             item = project.get(clip.media_id)
             peaks_file = waveform_path(project.directory, item.fingerprint)
+            # Cache parsed waveform: opening 76-minute recordings or editing
+            # a subtitle must not decode the same peaks JSON every redraw.
             try:
-                peaks = json.loads(peaks_file.read_text())['peaks'] if peaks_file.is_file() else []
+                stat = peaks_file.stat()
+                signature = (stat.st_mtime_ns, stat.st_size)
+                cached = self._waveform_cache.get(item.fingerprint)
+                if cached is not None and cached[0] == signature:
+                    peaks = cached[1]
+                else:
+                    peaks = json.loads(peaks_file.read_text(encoding="utf-8"))['peaks']
+                    self._waveform_cache[item.fingerprint] = (signature, peaks)
             except (ValueError, KeyError, OSError):
                 peaks = []
             label = Path(item.source).name + (f' [{item.status}]' if item.status in ('missing', 'changed') else '')
             sources.append({'clip': clip, 'name': label, 'duration': item.duration, 'peaks': peaks})
             if item.status in ('missing', 'changed'):
                 continue
-            def annotate(start, end, lane, text, color='#36c5d8', overlap=False):
+            def annotate(start, end, lane, text, color='#36c5d8', overlap=False,
+                         kind=None):
                 start, end = max(start, clip.source_in), min(end, clip.end(item.duration))
                 if end > start:
                     annotations.append({'start': map_time(clip, mapping.starts[clip.id], start, item.duration, to_source=False),
                                         'end': map_time(clip, mapping.starts[clip.id], end, item.duration, to_source=False),
-                                        'lane': lane, 'text': text, 'color': color, 'overlap': overlap})
+                                        'lane': lane, 'text': text, 'color': color,
+                                        'overlap': overlap, 'kind': kind, 'media_id': item.id})
             diarization = project.latest_analysis(item.id, 'diarization')
             if diarization:
                 for turn in project.mapped_turns(diarization):
@@ -192,7 +236,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                     annotate(turn['start'], turn['end'], name, name, speaker.color if speaker else '#777777', turn['overlap'])
             if item.status == 'completed':
                 for entry in project.review(item.id).edited:
-                    annotate(entry.start, entry.end, 'Transcript', entry.text, '#8fa4bd')
+                    annotate(entry.start, entry.end, 'Transcript', entry.text, '#8fa4bd',
+                             kind='transcript')
             locator = project.latest_analysis(item.id, 'locator')
             if locator:
                 for result in project.result(locator)['results']:
@@ -473,7 +518,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self.stt_panel.speaker_names,
         )
         if self.session.project:
-            self._render_timeline()
+            self._update_review_timeline()
 
     def _prepare_transcript_export(self):
         # Save the reviewed source snapshot before a clip-ordered project export.
@@ -559,7 +604,10 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         del blocker
         project_label = '— (source preview)' if self._outside_clip else _fmt_time(project_seconds)
         self.time_label.setText(f'Project {project_label} · Source {_fmt_time(source_seconds)}')
-        self.timeline.set_position_seconds(project_seconds)
+        self.timeline.set_position_seconds(
+            project_seconds,
+            follow=self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+        )
         self.video_widget.overlay.set_position(source_seconds, inside_clip=not self._outside_clip)
         self.stt_panel.set_playhead(source_seconds)
 
