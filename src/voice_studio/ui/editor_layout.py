@@ -1,5 +1,5 @@
 """Editor layout and view preferences; playback and jobs have separate controllers."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSignalBlocker
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel,
     QPushButton, QSlider, QSplitter, QStackedWidget, QTabWidget, QTextBrowser, QVBoxLayout, QWidget)
@@ -138,7 +138,8 @@ class EditorLayoutMixin:
         timeline_layout.addLayout(commands)
         self.timeline = EditorTimelineWidget()
         self.timeline.seekRequested.connect(self._seek_project)
-        self.timeline.selectionChanged.connect(self._timeline_selection)
+        self.timeline.selectionChangedClip.connect(self._timeline_clip_selection)
+        self.timeline.viewChanged.connect(self._sync_timeline_controls)
         self.zoom.valueChanged.connect(lambda value: self.timeline.set_view(zoom=value))
         self.pan.valueChanged.connect(lambda value: self.timeline.set_view(pan=value / 1000.))
         timeline_layout.addWidget(self.timeline, 1)
@@ -150,10 +151,10 @@ class EditorLayoutMixin:
             selection.addWidget(field)
         self._button('Preview selection', self._preview_selection, selection)
         self._button('Add manual reference', self._manual_selection, selection)
-        selection.addWidget(QLabel('Drag a source range · wheel zoom · Shift+wheel pan'), 1)
+        selection.addWidget(QLabel('Drag canvas: pan · drag playhead/ruler: seek · Shift+drag: select · wheel: zoom'), 1)
         timeline_layout.addLayout(selection)
         self.root_splitter.addWidget(timeline_page)
-        self.root_splitter.setSizes([620, 260])
+        self.root_splitter.setSizes([590, 290])
         editor_layout.addWidget(self.root_splitter)
         self.pages.addWidget(editor)
         self.projects_panel.mediaRequested.connect(self._select_media)
@@ -177,6 +178,12 @@ class EditorLayoutMixin:
         reference.previewRequested.connect(lambda a, b: self._guard(self.playback.preview, self._clip_id, a, b))
         return page
 
+    def _sync_timeline_controls(self, zoom: float, pan: float) -> None:
+        """Dragging or wheel zoom must update both toolbar sliders without loops."""
+        with QSignalBlocker(self.zoom), QSignalBlocker(self.pan):
+            self.zoom.setValue(round(zoom))
+            self.pan.setValue(round(pan * 1000))
+
     def _seconds_field(self):
         field = QDoubleSpinBox()
         field.setRange(0, 0)
@@ -187,7 +194,7 @@ class EditorLayoutMixin:
 
     def _help(self):
         browser = QTextBrowser()
-        browser.setHtml('''<h2>Portable project editor</h2><p>New/Open/Recent Project → Import Media (multi-select). Sources remain external. Projects, results, reviews and caches live in .projects alongside the app (repository root in development). The portable folder must be writable; there is no AppData fallback.</p><p>One sequential source track: select, seek or play across clips; Move earlier/later and source trim change the project timeline without changing inference timestamps. Source and project clocks are labelled separately. Drag a range or type source seconds, then Preview selection.</p><h3>Speakers</h3><p>Auto Detect is the default. Default Windows packages include pyannote/Torch; all feature runtimes are installed by uv sync. Import a complete Community-1 folder through Settings → Models. See docs/diarization.md. No token or automatic cloud download is used. Missing/incompatible models produce actionable errors. Original overlap turns remain accessible in Raw AI; exclusive turns are used for transcript suggestions.</p><p>Manual references do not require pyannote. Select a clear single-voice source interval, preview it, choose/create a project speaker and Add manual reference. Silence/short intervals and known overlap are rejected. Without diarization, overlap cannot be ruled out automatically; audition the reference. Multiple intervals per speaker are supported. CAM++/ERes2NetV2 models are installed via Models. Match references finds similar sections; Compare project speakers proposes merges. Similarity is not identity verification or calibrated confidence. Every merge/split needs confirmation. New diarization runs refresh automatic transcript labels while preserving human speaker corrections and text edits. Each automatic assignment records its analysis ID. Uncertain automatic labels display Review speaker; split warnings persist until another analysis or a human correction.</p><p>STT supports editable transcripts and TXT/SRT/Markdown/JSON exports. Whole project scope queues sources sequentially. Export all follows clip order/trims with source boundaries. All selected export formats include boundary text only for fully contained timestamped words; untimed boundary text is omitted. Fully selected segments retain reviewed text. JSON includes only selected reviewed entries, without raw transcripts/history, and marks partial entries for review. Full-source JSON retains raw and edited views; back up .projects for a full archive. Raw AI outputs and user edits stay separate. Cancel jobs/retry failed or interrupted tasks. Changing projects cancels the old queue before opening the new one.</p><h3>Backups</h3><p>Close the app and back up the entire .projects folder plus the original media before upgrading or moving. Extract upgrades into a new folder and copy .projects alongside the new executable; verify it opens before removing the old copy. Moving only the app does not move external recordings; use Relink. Exiting never deletes projects. Explicit deletion is by removing a backed-up project folder while the app is closed. Model/runtime cache paths are separate. Native Windows playback and real-model accuracy require release QA.</p>''')
+        browser.setHtml('''<h2>Portable project editor</h2><p>New/Open/Recent Project → Import Media (multi-select). Sources remain external. Projects, results, reviews and caches live in .projects alongside the app (repository root in development). The portable folder must be writable; there is no AppData fallback.</p><p>One sequential source track: select, seek or play across clips; Move earlier/later and source trim change the project timeline without changing inference timestamps. Source and project clocks are labelled separately. Click to seek, drag the canvas to pan when zoomed, drag the playhead or ruler to scrub, Shift+drag to select a source interval (clamped to one clip). Wheel zooms around the pointer, Shift+wheel pans and Alt+wheel scrolls lanes. Type source seconds or Shift+drag then Preview selection.</p><h3>Speakers</h3><p>Auto Detect is the default. Default Windows packages include pyannote/Torch; all feature runtimes are installed by uv sync. Import a complete Community-1 folder through Settings → Models. See docs/diarization.md. No token or automatic cloud download is used. Missing/incompatible models produce actionable errors. Original overlap turns remain accessible in Raw AI; exclusive turns are used for transcript suggestions.</p><p>Manual references do not require pyannote. Select a clear single-voice source interval, preview it, choose/create a project speaker and Add manual reference. Silence/short intervals and known overlap are rejected. Without diarization, overlap cannot be ruled out automatically; audition the reference. Multiple intervals per speaker are supported. CAM++/ERes2NetV2 models are installed via Models. Match references finds similar sections; Compare project speakers proposes merges. Similarity is not identity verification or calibrated confidence. Every merge/split needs confirmation. New diarization runs refresh automatic transcript labels while preserving human speaker corrections and text edits. Each automatic assignment records its analysis ID. Uncertain automatic labels display Review speaker; split warnings persist until another analysis or a human correction.</p><p>STT supports editable transcripts and TXT/SRT/Markdown/JSON exports. Whole project scope queues sources sequentially. Export all follows clip order/trims with source boundaries. All selected export formats include boundary text only for fully contained timestamped words; untimed boundary text is omitted. Fully selected segments retain reviewed text. JSON includes only selected reviewed entries, without raw transcripts/history, and marks partial entries for review. Full-source JSON retains raw and edited views; back up .projects for a full archive. Raw AI outputs and user edits stay separate. Cancel jobs/retry failed or interrupted tasks. Changing projects cancels the old queue before opening the new one.</p><h3>Backups</h3><p>Close the app and back up the entire .projects folder plus the original media before upgrading or moving. Extract upgrades into a new folder and copy .projects alongside the new executable; verify it opens before removing the old copy. Moving only the app does not move external recordings; use Relink. Exiting never deletes projects. Explicit deletion is by removing a backed-up project folder while the app is closed. Model/runtime cache paths are separate. Native Windows playback and real-model accuracy require release QA.</p>''')
         return browser
 
     def _restore_ui(self, settings):
