@@ -106,6 +106,10 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self._outside_clip = False
             self._pending_review = False
             self.stt_progress.clear()
+            # A new project always starts in the simple reviewed transcript view.
+            self.inspector_tabs.setCurrentWidget(self.stt_panel)
+            for widget, _label in self._advanced_inspector_pages.values():
+                self.inspector_tabs.setTabVisible(self.inspector_tabs.indexOf(widget), False)
             self.playback.set_project(project)
             self.stt_panel.set_media(None)
             self.diarization_panel.set_media(None)
@@ -513,7 +517,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self._set_selection(start, end)
 
     def _manual_selection(self):
-        self.inspector_tabs.setCurrentIndex(0)
+        self.inspector_tabs.setCurrentWidget(self.speakers_panel)
         self.speakers_panel.mode.setCurrentIndex(1)
 
     def _preview_selection(self):
