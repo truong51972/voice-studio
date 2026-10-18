@@ -76,7 +76,7 @@ def test_model_manager_exposes_full_catalog_without_dropdown_iteration(tmp_path)
         assert dialog.model_title.text() == "Small · multilingual"
         dialog.search.setText("CAM++")
         assert list(dialog._items) == ["locator-fast"]
-        assert dialog.model_title.text() == "Nhanh · CAM++"
+        assert dialog.model_title.text() == "Fast · CAM++"
     finally:
         dialog.close()
         app.processEvents()
