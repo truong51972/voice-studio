@@ -285,8 +285,13 @@ class ModelManagerDialog(QDialog):
         self.cpu_button.setEnabled(not busy and not locked and installed)
         self.cuda_button.setEnabled(not busy and not locked and installed and gpu_supported)
         self.precision.setEnabled(not busy and gpu_supported)
+        # Invalid managed paths must be displayed, not crash Qt refresh.
+        try:
+            has_manifest = self.service.manifest_path(entry).is_file()
+        except (OSError, ValueError, TypeError, KeyError):
+            has_manifest = False
         self.actions["Verify integrity"].setEnabled(
-            not busy and not locked and self.service.manifest_path(entry).is_file())
+            not busy and not locked and has_manifest)
         self.cancel_button.setEnabled(busy)
         self.storage_button.setEnabled(not busy and not locked)
 
