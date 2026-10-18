@@ -92,6 +92,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         for label in (self.preview_status, self.speakers_panel.status, self.stt_panel.status, self.summary_panel.status):
             label.setToolTip(text)
         self.cancel_button.setEnabled(bool(self.session.jobs))
+        self.cancel_button.setVisible(bool(self.session.jobs))
         for panel in (self.stt_panel, self.diarization_panel, self.summary_panel):
             panel.cancel_button.setEnabled(bool(self.session.jobs))
 
