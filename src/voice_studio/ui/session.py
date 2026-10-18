@@ -295,7 +295,11 @@ class ProjectSession(QObject):
                         # Delete only after the finalized result has been saved.
                         path = self._stt_checkpoint_path(
                             self.project, self.project.get(context.media_id), context.settings)
-                        path.unlink(missing_ok=True)
+                        try:
+                            path.unlink(missing_ok=True)
+                        except OSError:
+                            # The final result is committed; cleanup is best effort.
+                            pass
                     self.resultReady.emit(context.task, context.media_id, payload)
                 action = context.task if isinstance(context, AnalysisRecord) else context.split(':', 1)[0]
                 self.statusChanged.emit('Reused cached inference' if action == 'cached' else f'Completed {action}')
