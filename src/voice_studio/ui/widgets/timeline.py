@@ -39,6 +39,9 @@ class EditorTimelineWidget(QWidget):
         self._drag_preview = None
         self._drag_clip = None
         self._selection = None
+        self._follow_suspended_until = 0.
+        self._lane_names = []
+        self._lane_positions = {}
         self.setMouseTracking(True)
         self._track_scroll = QScrollBar(Qt.Orientation.Vertical, self)
         self._track_scroll.hide()
@@ -55,8 +58,24 @@ class EditorTimelineWidget(QWidget):
         self._duration = max(0.0, float(duration))
         self.update()
 
-    def set_position_seconds(self, seconds: float) -> None:
+    def set_position_seconds(self, seconds: float, *, follow: bool = False) -> None:
         self._position_seconds = max(0.0, float(seconds))
+        # Follow only active playback, not paused seeks, dragging, or a viewport
+        # the user intentionally panned. Keep the playhead inside a 15–85%
+        # comfort window to avoid the whole timeline jumping every frame.
+        if (follow and self._project_map and self._zoom > 1.
+                and self._drag_mode is None and monotonic() >= self._follow_suspended_until):
+            start, span = self._view()
+            duration = self._duration_seconds()
+            target = None
+            if seconds > start + span * .85:
+                target = seconds - span * .65
+            elif seconds < start + span * .15:
+                target = seconds - span * .15
+            if target is not None:
+                available = duration - span
+                self.set_view(pan=target / available if available > 0 else 0.)
+                return
         self.update()
 
     def _track_rect(self):
@@ -227,7 +246,7 @@ class EditorTimelineWidget(QWidget):
                 shift_seconds = ((self._drag_origin_x - x) * self._view()[1] /
                                  max(1., self._track_rect().width()))
                 if available > 0:
-                    self.set_view(pan=self._drag_origin_pan + shift_seconds / available)
+                    self.set_view(pan=self._drag_origin_pan + shift_seconds / available, user=True)
         elif self._drag_mode == "scrub":
             self._seek_at(x)
         elif self._drag_mode == "select":
@@ -254,10 +273,14 @@ class EditorTimelineWidget(QWidget):
         self._project_map = mapping
         self._sources = sources
         self._annotations = annotations
+        self._lane_names = list(dict.fromkeys(a["lane"] for a in annotations))
+        self._lane_positions = {name: index for index, name in enumerate(self._lane_names)}
         self._duration = mapping.duration if mapping else 0.
         self.update()
 
-    def set_view(self, zoom=None, pan=None):
+    def set_view(self, zoom=None, pan=None, *, user=False):
+        if user:
+            self._follow_suspended_until = monotonic() + 5.
         previous = self._zoom, self._pan
         if zoom is not None:
             self._zoom = max(1., min(128., float(zoom)))
@@ -265,6 +288,13 @@ class EditorTimelineWidget(QWidget):
             self._pan = max(0., min(1., float(pan)))
         if previous != (self._zoom, self._pan):
             self.viewChanged.emit(self._zoom, self._pan)
+        self.update()
+
+    def update_annotations(self, annotations):
+        """Replace annotation data without discarding waveform and clip caches."""
+        self._annotations = annotations
+        self._lane_names = list(dict.fromkeys(a["lane"] for a in annotations))
+        self._lane_positions = {name: i for i, name in enumerate(self._lane_names)}
         self.update()
 
     def set_selection(self, clip_id, start, end):
@@ -336,8 +366,8 @@ class EditorTimelineWidget(QWidget):
                     x = self._x(self._project_map.source_to_project(clip.id, source_seconds))
                     amplitude = max(peaks[bucket:min(last, bucket + step)], default=0.)
                     painter.drawLine(round(x), rect.top() + 36 - round(amplitude * 14), round(x), rect.top() + 36 + round(amplitude * 14))
-        lanes = list(dict.fromkeys(annotation["lane"] for annotation in self._annotations))
-        lane_positions = {name: idx for idx, name in enumerate(lanes)}
+        lanes = self._lane_names
+        lane_positions = self._lane_positions
         visible = max(1, (rect.height() - 56) // 24)
         self._track_scroll.setGeometry(self.width() - 14, rect.top() + 56, 12, max(1, rect.height() - 56))
         self._track_scroll.setRange(0, max(0, len(lanes) - visible))
@@ -373,9 +403,18 @@ class EditorTimelineWidget(QWidget):
                 painter.fillRect(QRectF(self._x(a), rect.top(), self._x(b) - self._x(a), rect.height()), QColor(54, 197, 216, 45))
             except ValueError:
                 pass
+        playhead_x = round(self._x(self._position_seconds))
         painter.setPen(QPen(QColor("#ff5d73"), 2))
-        painter.drawLine(round(self._x(self._position_seconds)), rect.top(), round(self._x(self._position_seconds)), rect.bottom())
+        painter.drawLine(playhead_x, rect.top(), playhead_x, rect.bottom())
         painter.restore()
+        # Visually expose the draggable handle at the top of the ruler.
+        if rect.left() <= playhead_x <= rect.right():
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#ff5d73"))
+            painter.drawPolygon(QPolygon([
+                QPoint(playhead_x - 7, 19), QPoint(playhead_x + 7, 19),
+                QPoint(playhead_x, 28),
+            ]))
         painter.setPen(QColor("#aeb4bd"))
         painter.drawText(8, rect.top() + 27, "Sources")
         for index, lane in enumerate(lanes[offset:offset + visible]):
@@ -428,7 +467,7 @@ class EditorTimelineWidget(QWidget):
             self._track_scroll.setValue(self._track_scroll.value() - round(delta))
         elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
             if self._zoom > 1.:
-                self.set_view(pan=self._pan - delta / (8. * self._zoom))
+                self.set_view(pan=self._pan - delta / (8. * self._zoom), user=True)
         else:
             # Cursor-anchored zoom: the point under the pointer stays fixed.
             ratio = max(0., min(1., (event.position().x() - self._track_rect().left()) /
@@ -439,5 +478,5 @@ class EditorTimelineWidget(QWidget):
             span = duration / target_zoom
             available = duration - span
             new_pan = ((anchor - ratio * span) / available) if available > 0 else 0.
-            self.set_view(zoom=target_zoom, pan=new_pan)
+            self.set_view(zoom=target_zoom, pan=new_pan, user=True)
         event.accept()
