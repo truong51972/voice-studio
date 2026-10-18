@@ -499,6 +499,13 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
     def _selection_edited(self):
         self._set_selection(self.selection_start.value(), self.selection_end.value())
 
+    def _timeline_clip_selection(self, clip_id, start, end):
+        # A source may occur in multiple project clips; always preserve the
+        # precise clip selected instead of jumping to its first occurrence.
+        if self._clip_id != clip_id:
+            self._guard(self.playback.select_clip, clip_id)
+        self._set_selection(start, end)
+
     def _timeline_selection(self, media_id, start, end):
         item = self._current_item()
         if not item or item.id != media_id:
