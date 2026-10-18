@@ -48,7 +48,10 @@ class EditorLayoutMixin:
         self.cancel_button.hide()
         self.models_button = self._button('Models', self._open_models, toolbar)
         self.models_button.hide()
-        root.addLayout(toolbar)
+        self.editor_toolbar = QWidget()
+        self.editor_toolbar.setLayout(toolbar)
+        self.editor_toolbar.hide()  # Home remains a dedicated project-focused screen.
+        root.addWidget(self.editor_toolbar)
         self.pages = QStackedWidget()
         root.addWidget(self.pages, 1)
         self.project_browser = ProjectBrowser(self)
