@@ -103,6 +103,8 @@ def parse_subtitles(content: str, kind: str | None = None) -> list[SubtitleCue]:
         identifier = ""
         timing_line = 0
         if not matcher.fullmatch(lines[0].strip()):
+            if "-->" in lines[0]:
+                raise ValueError("Invalid subtitle timestamp syntax")
             identifier = lines[0].strip()
             timing_line = 1
         if timing_line >= len(lines):
