@@ -1,4 +1,4 @@
-"""Settings → Models: scannable catalog with device-specific native readiness."""
+"""Scannable model catalog with device-specific native readiness."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -60,7 +60,7 @@ class ModelManagerDialog(QDialog):
         self._worker = None
         self._selected_id = model_id
         self._items = {}
-        self.setWindowTitle("Settings → Models · Voice Studio")
+        self.setWindowTitle("Models")
         self.resize(1020, 640)
         root = QVBoxLayout(self)
 
