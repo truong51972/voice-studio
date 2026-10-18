@@ -108,6 +108,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self.projects_panel.active_id = self.projects_panel.active_clip_id = None
         self.projects_panel.table.setRowCount(0)
         self.pages.setCurrentIndex(0)
+        self.editor_toolbar.hide()
         self.project_browser.refresh()
         self._update_actions()
 
@@ -138,6 +139,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self.timeline.set_bundle(None)
             self._project_position(0., 0.)
             self.pages.setCurrentIndex(1)
+            self.editor_toolbar.show()
             self._restore_ui(project.settings.get('ui', {}))
         self.target_label.setText(project.name)
         item = self._current_item()
