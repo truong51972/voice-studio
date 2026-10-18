@@ -7,7 +7,9 @@ if errorlevel 1 (
   exit /b 1
 )
 echo [1/3] Setting up Python and all production runtimes...
-uv sync --locked
+uv python install 3.12
+if errorlevel 1 exit /b 1
+uv sync --locked --python 3.12
 if errorlevel 1 exit /b 1
 echo [2/3] Building Windows onedir distribution...
 uv run python scripts/build.py
