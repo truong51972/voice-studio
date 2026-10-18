@@ -1,5 +1,19 @@
 # Quality & release acceptance checklist (#12)
 
+## Tracking and ownership
+
+The **release acceptance source of truth** is [Epic #1](https://github.com/truong51972/voice-studio/issues/1). It remains open until representative real recordings, native Windows/Linux desktop sessions, installed models, optional CUDA and the release artifact are evidenced. Keep those results there rather than leaving completed implementation tickets open indefinitely.
+
+| Tracker | Disposition | Release implication |
+| --- | --- | --- |
+| [#25 — WebApp migration](https://github.com/truong51972/voice-studio/issues/25) | Closed as **not planned**; PySide6 desktop remains the target. | Does **not** waive inherited QA from superseded #24. |
+| [#26](https://github.com/truong51972/voice-studio/issues/26) / [PR #27](https://github.com/truong51972/voice-studio/pull/27) | Implementation closed/merged. | Native packaging, real multi-source playback and speaker validation remain pending. |
+| [#28](https://github.com/truong51972/voice-studio/issues/28) / [PR #29](https://github.com/truong51972/voice-studio/pull/29) | Dependency, JSON model service and desktop UX implementation merged. | Real packaging/model validation remains pending under #1. |
+| [PR #30](https://github.com/truong51972/voice-studio/pull/30) | Model Manager and CUDA-device support merged. | CUDA/CPU probes on actual supported hardware remain pending. |
+| [#31](https://github.com/truong51972/voice-studio/issues/31) / [PR #32](https://github.com/truong51972/voice-studio/pull/32) | Progress, WebVTT/SRT, subtitles and timeline interaction merged; issue closed. | Native video subtitle preview and real long-media smoke remain pending. |
+
+Closing a delivered implementation issue never constitutes a passing release gate. Record OS/hardware, Python and native library versions, exact model ID/revision, consented fixture and duration, CPU/CUDA mode, test command, observed output, and remaining failures in the #1 sign-off before calling a release production-ready.
+
 ## Deterministic CI
 
 \`uv run poe check && uv run poe test\` runs unit, model-registry,
