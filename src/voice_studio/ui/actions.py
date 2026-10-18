@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QPlainTextEdit, QTextEdit, QMessageBox, QVBoxLayout,
 )
 
-from ..workspace import projects_directory
+from .project_browser import scan_projects
 
 
 class EditorActionsMixin:
@@ -28,6 +28,7 @@ class EditorActionsMixin:
             self.actions[key] = action
             return action
 
+        add("home", "Projects / Home", "File", self._show_home, "Ctrl+Shift+H")
         add("new", "New project", "File", self.projects_panel._new, "Ctrl+N")
         add("open", "Open project", "File", self.projects_panel._open, "Ctrl+O")
         self.recent_menu = self.menus["File"].addMenu("Recent projects")
@@ -122,17 +123,14 @@ class EditorActionsMixin:
 
     def _refresh_recent_menu(self):
         self.recent_menu.clear()
-        try:
-            folders = sorted(projects_directory().glob("*/project.json"),
-                             key=lambda path: path.stat().st_mtime, reverse=True)
-        except OSError:
-            folders = []
-        for manifest in folders[:10]:
-            action = self.recent_menu.addAction(manifest.parent.name)
-            action.triggered.connect(lambda _checked=False, folder=manifest.parent:
+        entries = [entry for entry in scan_projects() if entry.available]
+        for entry in entries[:10]:
+            action = self.recent_menu.addAction(entry.name)
+            action.setToolTip(str(entry.directory))
+            action.triggered.connect(lambda _checked=False, folder=entry.directory:
                                      self._invoke_action(lambda: self.projects_panel._open_folder(str(folder))))
-        if not folders:
-            self.recent_menu.addAction("No recent projects").setEnabled(False)
+        if not entries:
+            self.recent_menu.addAction("No projects").setEnabled(False)
 
     def _show_documentation(self):
         dialog = QDialog(self)
@@ -179,7 +177,7 @@ class EditorActionsMixin:
         transcript = self.stt_panel.document is not None
         rows = self.stt_panel._selected_rows() if transcript else []
         enabled = {
-            "new": not working, "open": not working,
+            "home": not working, "new": not working, "open": not working,
             "import": project and not working, "save": project,
             "export": project and any(self.session.project.latest_analysis(m.id, "stt")
                 for m in self.session.project.items), "export_stt": transcript,
@@ -198,7 +196,7 @@ class EditorActionsMixin:
             "analysis": True,
         }
         self.stt_panel.export_button.setEnabled(bool(transcript or enabled["export"]))
-        self.cancel_button.setVisible(working)
+        self.cancel_button.setVisible(working and not self.stt_progress.isVisible())
         for key, value in enabled.items():
             self.actions[key].setEnabled(bool(value))
         for key, widget in (("sources", self.projects_panel),
