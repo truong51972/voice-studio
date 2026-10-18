@@ -21,6 +21,7 @@ class STTProgressStrip(QWidget):
         super().__init__(parent)
         self.setObjectName("sttProgressStrip")
         self._filename = ""
+        self._prefix = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(5)
@@ -55,6 +56,17 @@ class STTProgressStrip(QWidget):
         self.detail.clear()
         self.percent.clear()
 
+    def _elide_source(self):
+        label = self._prefix + self._filename
+        available = max(80, self.width() - 22)
+        self.source.setText(self.source.fontMetrics().elidedText(
+            label, Qt.TextElideMode.ElideMiddle, available))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._filename:
+            self._elide_source()
+
     def show_progress(self, info: dict) -> None:
         state = str(info.get("state", "queued"))
         filename = str(info.get("filename", ""))
@@ -64,7 +76,8 @@ class STTProgressStrip(QWidget):
         index = int(info.get("source_index", 1))
         count = int(info.get("source_count", 1))
         prefix = f"Source {index}/{count} · " if count > 1 else ""
-        self.source.setText(prefix + filename)
+        self._prefix = prefix
+        self._elide_source()
         self.source.setToolTip(filename)
         self.heading.setText({
             "completed": "Transcription complete",
