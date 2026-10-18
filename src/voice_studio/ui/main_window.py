@@ -526,6 +526,13 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 self._load_current_results(reload_review=task in ('stt', 'diarization'))
         if task == 'summary' and payload.get('scope') == 'project':
             self.summary_panel._show(payload)
+        if task == 'stt' and not any(
+            getattr(job, 'task', None) == 'stt' and getattr(job, 'media_id', None) != media_id
+            for job in self.session.jobs.values()
+        ):
+            # Completed STT should return screen space to reviewed transcript.
+            self.stt_progress.clear()
+            self.stt_panel.set_session_progress({'state': 'completed'})
         self._render_timeline()
 
     def _before_result(self, task, media_id):
