@@ -68,6 +68,7 @@ def test_model_manager_exposes_full_catalog_without_dropdown_iteration(tmp_path)
     service = ModelService(tmp_path / "weights", settings=tmp_path / "settings" / "models.json")
     dialog = ModelManagerDialog(service=service, model_id="whisper-small")
     try:
+        assert dialog.windowTitle() == "Models"
         assert len(dialog._items) == len(descriptors()) == 7
         assert dialog.model_list.topLevelItemCount() == 3
         assert dialog._items["whisper-small"].text(1) == "Not installed"
@@ -75,7 +76,7 @@ def test_model_manager_exposes_full_catalog_without_dropdown_iteration(tmp_path)
         assert dialog.model_title.text() == "Small · multilingual"
         dialog.search.setText("CAM++")
         assert list(dialog._items) == ["locator-fast"]
-        assert dialog.model_title.text() == "Nhanh · CAM++"
+        assert dialog.model_title.text() == "Fast · CAM++"
     finally:
         dialog.close()
         app.processEvents()

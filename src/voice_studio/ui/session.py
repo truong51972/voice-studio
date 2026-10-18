@@ -17,12 +17,14 @@ class ProjectSession(QObject):
     changed = Signal()
     resultReady = Signal(str, str, object)
     statusChanged = Signal(str)
+    progressChanged = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.project: ProjectStore | None = None
         self.manager: TaskManager | None = None
         self.jobs: dict[str, AnalysisRecord | str] = {}
+        self._stt_batches: dict[str, tuple[int, int]] = {}
         self.prepare_result = lambda task, media_id: None
         self.prepare_close = lambda: None
         self.validating = False
@@ -86,7 +88,8 @@ class ProjectSession(QObject):
                                                  for p in folder.rglob("*") if p.is_file()) if folder.is_dir() else []
         return options
 
-    def analyze(self, task: str, media_id: str, options: dict, **extra) -> str | None:
+    def analyze(self, task: str, media_id: str, options: dict,
+                progress_batch: tuple[int, int] | None = None, **extra) -> str | None:
         project = self.project
         if project is None:
             raise ValueError("Create/open a project first")
@@ -137,6 +140,8 @@ class ProjectSession(QObject):
         record = project.queue_analysis(media_id, task, options)
         inputs = {"target_path": item.source, "fingerprint": item.fingerprint,
                   "media_kind": item.kind, "options": options, **extra}
+        if task == "stt":
+            inputs["source_duration"] = item.duration
         if task in ("locator", "reconcile"):
             inputs.update(media=[asdict(m) for m in project.items],
                           references=[asdict(r) for r in project.references], speakers=[asdict(s) for s in project.speakers])
@@ -156,13 +161,38 @@ class ProjectSession(QObject):
             record.state, record.error = "failed", str(exc)
             project.save()
             raise
+        if task == "stt":
+            self._stt_batches[job] = progress_batch or (1, 1)
         self.changed.emit()
         return job
+
+    def _emit_stt_progress(self) -> None:
+        if self.manager is None or self.project is None:
+            return
+        pending = [(job, context, self.manager.snapshot(job)) for job, context in self.jobs.items()
+                   if isinstance(context, AnalysisRecord) and context.task == "stt"]
+        if not pending:
+            return
+        # Prefer the currently running source, never replace it with queued N+1.
+        job, record, snapshot = next((row for row in pending if row[2].state == "running"), pending[0])
+        source = self.project.get(record.media_id)
+        index, count = self._stt_batches.get(job, (1, 1))
+        self.progressChanged.emit({
+            "state": snapshot.state, "stage": snapshot.stage,
+            "filename": Path(source.source).name, "model": record.settings.get("model_id", ""),
+            "device": record.settings.get("device", "cpu"),
+            "processed_seconds": snapshot.processed_seconds,
+            "total_seconds": snapshot.total_seconds or source.duration,
+            "fraction": snapshot.progress, "elapsed_seconds": snapshot.elapsed_seconds,
+            "eta_seconds": snapshot.eta_seconds,
+            "source_index": index, "source_count": count,
+        })
 
     def poll(self) -> None:
         if self.manager is None or self.project is None:
             return
         self.manager.poll()
+        self._emit_stt_progress()
         for job_id, context in list(self.jobs.items()):
             snapshot = self.manager.snapshot(job_id)
             operation = next((entry for entry in self.project.settings.get('operations', []) if entry['id'] == job_id), None)
@@ -252,6 +282,18 @@ class ProjectSession(QObject):
                     self.project.save()
                 self.statusChanged.emit(str(exc))
             finally:
+                if isinstance(context, AnalysisRecord) and context.task == "stt":
+                    index, count = self._stt_batches.pop(job_id, (1, 1))
+                    source = self.project.get(context.media_id)
+                    self.progressChanged.emit({
+                        "state": snapshot.state, "stage": snapshot.stage,
+                        "filename": Path(source.source).name, "model": context.settings.get("model_id", ""),
+                        "device": context.settings.get("device", "cpu"),
+                        "processed_seconds": snapshot.processed_seconds,
+                        "total_seconds": snapshot.total_seconds or source.duration,
+                        "fraction": snapshot.progress, "elapsed_seconds": snapshot.elapsed_seconds,
+                        "eta_seconds": None, "source_index": index, "source_count": count,
+                    })
                 if context == "validate":
                     self.validating = False
                 self.manager.acknowledge(job_id)
@@ -275,4 +317,5 @@ class ProjectSession(QObject):
             self.manager.close()
         self.manager = None
         self.jobs.clear()
+        self._stt_batches.clear()
         self.validating = False

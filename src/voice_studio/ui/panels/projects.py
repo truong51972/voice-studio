@@ -140,12 +140,39 @@ class ProjectsPanel(QWidget):
         if not self.project:
             return
         for row, item in enumerate(self.project.items):
-            latest = next((r for r in reversed(self.project.analyses) if r.media_id == item.id), None)
-            state = item.status if item.status in ('missing', 'changed') else f'{latest.task}: {latest.state}' if latest else item.status
-            values = (Path(item.source).name, state, f"{item.duration:.1f}s" if item.duration else "Probe pending")
+            records = [r for r in self.project.analyses if r.media_id == item.id]
+            latest_by_task = {record.task: record for record in records}
+            latest = records[-1] if records else None
+            if item.status in ("missing", "changed"):
+                state = item.status.capitalize()
+            else:
+                labels = []
+                for task, label in (("stt", "STT"), ("diarization", "Speakers"),
+                                    ("locator", "Match")):
+                    record = latest_by_task.get(task)
+                    if ((record and record.state == "completed") or
+                            (task == "stt" and not record and item.status == "completed")):
+                        # Older portable projects stored STT completion directly
+                        # on the media item, not as an AnalysisRecord.
+                        labels.append(label + " ✓")
+                if latest and latest.state in ("running", "pending", "queued", "failed"):
+                    labels.append(f"{latest.task}: {latest.state}")
+                state = " · ".join(labels) or (item.status.capitalize() if item.status else "Ready")
+            duration = None
+            if item.duration is not None and item.duration > 0:
+                seconds = round(item.duration)
+                h, remainder = divmod(seconds, 3600)
+                m, sec = divmod(remainder, 60)
+                duration = f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+            values = (Path(item.source).name, state, duration or "Probing…")
+            detail = " · ".join(f"{record.task}: {record.state}" for record in records)
+            if item.status == "completed" and "stt" not in latest_by_task:
+                detail = "stt: completed" + (" · " + detail if detail else "")
+            hint = "\n".join(filter(None, [str(item.source), detail, item.error,
+                                            latest.error if latest else None]))
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
-                cell.setToolTip(item.error or (latest.error if latest else "") or item.source)
+                cell.setToolTip(hint)
                 self.table.setItem(row, column, cell)
             if item.id == selected:
                 self.table.selectRow(row)
@@ -169,16 +196,6 @@ class ProjectsPanel(QWidget):
             self.project.save_review(self.active_id, document, settings_key=self._active_review_key)
 
     def _export(self):
-        if not self.project:
-            return
-        path, _ = QFileDialog.getSaveFileName(self, "Export ordered project", "",
-                                              "Markdown (*.md);;Plain text (*.txt);;SubRip (*.srt);;JSON (*.json)")
-        if path:
-            try:
-                kind = Path(path).suffix.lstrip('.').lower() or 'md'
-                if not Path(path).suffix:
-                    path += '.md'
-                Path(path).write_text(self.project.combined_export(kind), encoding="utf-8")
-                self.status.setText(f"Exported {Path(path).name} · Boundary text includes only fully timed words; unavailable text omitted.")
-            except (ValueError, OSError) as exc:
-                self.status.setText(str(exc))
+        # Both File → Export project transcript and the STT result action use
+        # one scope-aware export implementation. No independent save path.
+        self.stt_panel._export(scope="project")

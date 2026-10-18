@@ -5,7 +5,7 @@
       "id": "locator-fast",
       "task": "locator",
       "engine": "sherpa-onnx",
-      "label": "Nhanh · CAM++",
+      "label": "Fast · CAM++",
       "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
       "license": "See upstream 3D-Speaker/sherpa-onnx model terms",
       "languages": [
@@ -23,7 +23,7 @@
       "provider": "urls",
       "default": true,
       "profile_key": "fast",
-      "description": "Model mặc định, nhẹ hơn và phù hợp phân tích nhanh trên CPU.",
+      "description": "Default lightweight model optimized for faster CPU analysis.",
       "download_urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx",
         "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx?download=true"
@@ -41,7 +41,7 @@
       "id": "locator-accurate",
       "task": "locator",
       "engine": "sherpa-onnx",
-      "label": "Chính xác · ERes2NetV2",
+      "label": "Accurate · ERes2NetV2",
       "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx",
       "license": "See upstream 3D-Speaker/sherpa-onnx model terms",
       "languages": [
@@ -59,7 +59,7 @@
       "provider": "urls",
       "default": false,
       "profile_key": "accurate",
-      "description": "Model lớn hơn, ưu tiên chất lượng speaker embedding hơn tốc độ xử lý.",
+      "description": "Larger model prioritizing speaker embedding quality over inference speed.",
       "download_urls": [
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx",
         "https://huggingface.co/csukuangfj/speaker-embedding-models/resolve/main/3dspeaker_speech_eres2netv2_sv_zh-cn_16k-common.onnx?download=true"

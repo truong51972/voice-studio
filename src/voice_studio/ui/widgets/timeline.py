@@ -5,6 +5,8 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygon
 from PySide6.QtWidgets import QScrollBar, QWidget
+from math import floor, log10
+from time import monotonic
 
 from ...pipeline import AnalysisBundle
 from ...domain.timeline import map_time
@@ -16,6 +18,8 @@ class EditorTimelineWidget(QWidget):
 
     seekRequested = Signal(float)
     selectionChanged = Signal(str, float, float)
+    selectionChangedClip = Signal(str, float, float)
+    viewChanged = Signal(float, float)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -28,7 +32,17 @@ class EditorTimelineWidget(QWidget):
         self._zoom = 1.
         self._pan = 0.
         self._drag_start = None
+        self._drag_mode = None
+        self._drag_origin_x = 0.
+        self._drag_origin_pan = 0.
+        self._drag_last_seek = 0.
+        self._drag_preview = None
+        self._drag_clip = None
         self._selection = None
+        self._follow_suspended_until = 0.
+        self._lane_names = []
+        self._lane_positions = {}
+        self.setMouseTracking(True)
         self._track_scroll = QScrollBar(Qt.Orientation.Vertical, self)
         self._track_scroll.hide()
         self._track_scroll.valueChanged.connect(lambda _value: self.update())
@@ -44,8 +58,24 @@ class EditorTimelineWidget(QWidget):
         self._duration = max(0.0, float(duration))
         self.update()
 
-    def set_position_seconds(self, seconds: float) -> None:
+    def set_position_seconds(self, seconds: float, *, follow: bool = False) -> None:
         self._position_seconds = max(0.0, float(seconds))
+        # Follow only active playback, not paused seeks, dragging, or a viewport
+        # the user intentionally panned. Keep the playhead inside a 15–85%
+        # comfort window to avoid the whole timeline jumping every frame.
+        if (follow and self._project_map and self._zoom > 1.
+                and self._drag_mode is None and monotonic() >= self._follow_suspended_until):
+            start, span = self._view()
+            duration = self._duration_seconds()
+            target = None
+            if seconds > start + span * .85:
+                target = seconds - span * .65
+            elif seconds < start + span * .15:
+                target = seconds - span * .15
+            if target is not None:
+                available = duration - span
+                self.set_view(pan=target / available if available > 0 else 0.)
+                return
         self.update()
 
     def _track_rect(self):
@@ -157,32 +187,114 @@ class EditorTimelineWidget(QWidget):
                 "Analyze để tạo speaker tracks trên timeline",
             )
 
-    def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt API
+    def _inside_track(self, x: float, y: float) -> bool:
         rect = self._track_rect()
-        if rect.width() <= 0 or event.position().x() < rect.left():
+        return rect.left() <= x <= rect.right() and 0 <= y <= rect.bottom()
+
+    def _seek_at(self, x: float, *, force: bool = False) -> None:
+        seconds = self._seconds_at(x)
+        self.set_position_seconds(seconds)
+        now = monotonic()
+        if force or now - self._drag_last_seek >= .04:
+            self._drag_last_seek = now
+            self.seekRequested.emit(seconds)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        x, y = event.position().x(), event.position().y()
+        if not self._inside_track(x, y):
+            return super().mousePressEvent(event)
+        button = event.button()
+        if button not in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton,
+                          Qt.MouseButton.RightButton):
+            return super().mousePressEvent(event)
+        if self._project_map is not None and not self._project_map.clips:
             return
-        if self._project_map is not None and self._project_map.clips:
-            self._drag_start = self._seconds_at(event.position().x())
-            return
-        if self._project_map is not None:
-            return
-        ratio = (event.position().x() - rect.left()) / rect.width()
-        seconds = max(0.0, min(self._duration_seconds(), ratio * self._duration_seconds()))
-        self.seekRequested.emit(seconds)
-        super().mousePressEvent(event)
+        self._drag_origin_x = x
+        self._drag_origin_pan = self._pan
+        self._drag_start = self._seconds_at(x)
+        self._drag_preview = None
+        self._drag_clip = None
+        if button in (Qt.MouseButton.MiddleButton, Qt.MouseButton.RightButton):
+            self._drag_mode = "pan"
+        elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier and self._project_map:
+            self._drag_mode = "select"
+            self._drag_clip, _ = self._project_map.project_to_source(self._drag_start)
+            self._drag_preview = (self._drag_start, self._drag_start)
+        elif (self._zoom > 1. and y >= 30
+              and not event.modifiers() & Qt.KeyboardModifier.ControlModifier
+              and abs(x - self._x(self._position_seconds)) > 11):
+            # Drag empty canvas to pan, short click still seeks.
+            self._drag_mode = "pan"
+        else:
+            # Ruler, playhead, Ctrl+drag and unzoomed canvas scrub.
+            self._drag_mode = "scrub"
+            self._seek_at(x, force=True)
+        self.grabMouse()
+        self.setCursor(Qt.CursorShape.ClosedHandCursor if self._drag_mode == "pan"
+                       else Qt.CursorShape.CrossCursor if self._drag_mode == "select"
+                       else Qt.CursorShape.SizeHorCursor)
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
+        x = event.position().x()
+        if self._drag_mode is None:
+            self._update_cursor(x, event.position().y())
+            return super().mouseMoveEvent(event)
+        if self._drag_mode == "pan":
+            if self._zoom > 1.:
+                available = self._duration_seconds() * (1. - 1. / self._zoom)
+                shift_seconds = ((self._drag_origin_x - x) * self._view()[1] /
+                                 max(1., self._track_rect().width()))
+                if available > 0:
+                    self.set_view(pan=self._drag_origin_pan + shift_seconds / available, user=True)
+        elif self._drag_mode == "scrub":
+            self._seek_at(x)
+        elif self._drag_mode == "select":
+            self._drag_preview = (self._drag_start, self._seconds_at(x))
+            self.update()
+        event.accept()
+
+    def _update_cursor(self, x: float, y: float) -> None:
+        if not self._inside_track(x, y):
+            self.unsetCursor()
+        elif abs(x - self._x(self._position_seconds)) <= 11 or y < 30:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        elif self._zoom > 1.:
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+        else:
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        if self._drag_mode is None:
+            self.unsetCursor()
+        super().leaveEvent(event)
 
     def set_project_data(self, mapping, sources, annotations):
         self._project_map = mapping
         self._sources = sources
         self._annotations = annotations
+        self._lane_names = list(dict.fromkeys(a["lane"] for a in annotations))
+        self._lane_positions = {name: index for index, name in enumerate(self._lane_names)}
         self._duration = mapping.duration if mapping else 0.
         self.update()
 
-    def set_view(self, zoom=None, pan=None):
+    def set_view(self, zoom=None, pan=None, *, user=False):
+        if user:
+            self._follow_suspended_until = monotonic() + 5.
+        previous = self._zoom, self._pan
         if zoom is not None:
             self._zoom = max(1., min(128., float(zoom)))
         if pan is not None:
             self._pan = max(0., min(1., float(pan)))
+        if previous != (self._zoom, self._pan):
+            self.viewChanged.emit(self._zoom, self._pan)
+        self.update()
+
+    def update_annotations(self, annotations):
+        """Replace annotation data without discarding waveform and clip caches."""
+        self._annotations = annotations
+        self._lane_names = list(dict.fromkeys(a["lane"] for a in annotations))
+        self._lane_positions = {name: i for i, name in enumerate(self._lane_names)}
         self.update()
 
     def set_selection(self, clip_id, start, end):
@@ -211,8 +323,16 @@ class EditorTimelineWidget(QWidget):
         start, span = self._view()
         painter.setPen(QColor("#aeb4bd"))
         painter.drawText(8, 16, "Project time")
-        for index in range(7):
-            seconds = start + span * index / 6
+        raw_tick = max(.001, span / max(2, self.width() // 140))
+        order = 10 ** floor(log10(raw_tick))
+        tick = next((step * order for step in (1, 2, 5, 10) if step * order >= raw_tick), 10 * order)
+        first_tick = floor(start / tick) * tick
+        for index in range(200):
+            seconds = first_tick + index * tick
+            if seconds > start + span:
+                break
+            if seconds < start:
+                continue
             x = round(self._x(seconds))
             painter.drawText(x - 20, 16, _fmt_time(seconds))
             painter.drawLine(x, 20, x, rect.bottom())
@@ -223,6 +343,8 @@ class EditorTimelineWidget(QWidget):
             timeline_start = self._project_map.starts[clip.id]
             timeline_end = timeline_start + clip.end(source["duration"]) - clip.source_in
             x1, x2 = self._x(timeline_start), self._x(timeline_end)
+            if x2 < rect.left() or x1 > rect.right():
+                continue
             body = QRectF(x1 + 1, rect.top(), max(2., x2 - x1 - 2), 50)
             painter.setPen(QColor("#36c5d8"))
             painter.setBrush(QColor("#183944"))
@@ -230,8 +352,12 @@ class EditorTimelineWidget(QWidget):
             painter.drawText(body.adjusted(5, 1, -3, -26), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, source["name"])
             peaks = source.get("peaks", [])
             if peaks:
-                first, last = int(clip.source_in / .1), min(len(peaks), int(clip.end(source["duration"]) / .1) + 1)
-                step = max(1, (last - first) // max(1, int(min(rect.width(), body.width()))))
+                # Read only visible waveform buckets and aggregate to screen pixels.
+                visible_start = max(timeline_start, start)
+                visible_end = min(timeline_end, start + span)
+                first = max(0, int((clip.source_in + visible_start - timeline_start) / .1))
+                last = min(len(peaks), int((clip.source_in + visible_end - timeline_start) / .1) + 1)
+                step = max(1, (last - first) // max(1, int(rect.width())))
                 painter.setPen(QColor("#50bfd0"))
                 for bucket in range(first, last, step):
                     source_seconds = bucket * .1
@@ -240,7 +366,8 @@ class EditorTimelineWidget(QWidget):
                     x = self._x(self._project_map.source_to_project(clip.id, source_seconds))
                     amplitude = max(peaks[bucket:min(last, bucket + step)], default=0.)
                     painter.drawLine(round(x), rect.top() + 36 - round(amplitude * 14), round(x), rect.top() + 36 + round(amplitude * 14))
-        lanes = list(dict.fromkeys(annotation["lane"] for annotation in self._annotations))
+        lanes = self._lane_names
+        lane_positions = self._lane_positions
         visible = max(1, (rect.height() - 56) // 24)
         self._track_scroll.setGeometry(self.width() - 14, rect.top() + 56, 12, max(1, rect.height() - 56))
         self._track_scroll.setRange(0, max(0, len(lanes) - visible))
@@ -248,11 +375,13 @@ class EditorTimelineWidget(QWidget):
         offset = self._track_scroll.value()
         height = max(22, (rect.height() - 56) // max(1, min(visible, len(lanes))))
         for annotation in self._annotations:
-            lane = lanes.index(annotation["lane"]) - offset
+            lane = lane_positions[annotation["lane"]] - offset
             if lane < 0 or lane >= visible:
                 continue
             y = rect.top() + 56 + lane * height
             x1, x2 = self._x(annotation["start"]), self._x(annotation["end"])
+            if x2 < rect.left() or x1 > rect.right():
+                continue
             color = QColor(annotation.get("color", "#36c5d8"))
             color.setAlpha(115 if annotation.get("overlap") else 180)
             painter.setBrush(color)
@@ -262,6 +391,10 @@ class EditorTimelineWidget(QWidget):
             painter.setPen(QColor("#eef6f8"))
             painter.drawText(body.adjusted(4, 0, -2, 0), Qt.AlignmentFlag.AlignVCenter,
                              annotation.get("text", "") + (" · overlap" if annotation.get("overlap") else ""))
+        if self._drag_preview is not None:
+            a, b = sorted(self._drag_preview)
+            painter.fillRect(QRectF(self._x(a), rect.top(), max(0., self._x(b) - self._x(a)),
+                                    rect.height()), QColor(54, 197, 216, 75))
         if self._selection:
             clip_id, a, b = self._selection
             try:
@@ -270,37 +403,80 @@ class EditorTimelineWidget(QWidget):
                 painter.fillRect(QRectF(self._x(a), rect.top(), self._x(b) - self._x(a), rect.height()), QColor(54, 197, 216, 45))
             except ValueError:
                 pass
+        playhead_x = round(self._x(self._position_seconds))
         painter.setPen(QPen(QColor("#ff5d73"), 2))
-        painter.drawLine(round(self._x(self._position_seconds)), rect.top(), round(self._x(self._position_seconds)), rect.bottom())
+        painter.drawLine(playhead_x, rect.top(), playhead_x, rect.bottom())
         painter.restore()
+        # Visually expose the draggable handle at the top of the ruler.
+        if rect.left() <= playhead_x <= rect.right():
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor("#ff5d73"))
+            painter.drawPolygon(QPolygon([
+                QPoint(playhead_x - 7, 19), QPoint(playhead_x + 7, 19),
+                QPoint(playhead_x, 28),
+            ]))
         painter.setPen(QColor("#aeb4bd"))
         painter.drawText(8, rect.top() + 27, "Sources")
         for index, lane in enumerate(lanes[offset:offset + visible]):
             painter.drawText(8, rect.top() + 56 + index * height + 17, lane[:15])
 
-    def mouseReleaseEvent(self, event):
-        if self._project_map is None or self._drag_start is None:
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802
+        if self._drag_mode is None:
             return super().mouseReleaseEvent(event)
-        a, b = sorted((self._drag_start, self._seconds_at(event.position().x())))
-        self._drag_start = None
-        if abs(self._x(b) - self._x(a)) < 4:
-            self.seekRequested.emit(a)
+        if event.button() not in (Qt.MouseButton.LeftButton, Qt.MouseButton.MiddleButton,
+                                  Qt.MouseButton.RightButton):
             return
-        clip, source_a = self._project_map.project_to_source(a)
-        end = self._project_map.source_to_project(clip.id, clip.end(self._project_map.durations[clip.media_id]))
-        b = min(b, end)
-        source_b = map_time(clip, self._project_map.starts[clip.id], b, self._project_map.durations[clip.media_id], to_source=True)
-        if source_b > source_a:
-            self.set_selection(clip.id, source_a, source_b)
-            self.selectionChanged.emit(clip.media_id, source_a, source_b)
+        mode = self._drag_mode
+        self._drag_mode = None
+        self._drag_preview = None
+        self.releaseMouse()
+        self._update_cursor(event.position().x(), event.position().y())
+        if mode == "pan":
+            if event.button() == Qt.MouseButton.LeftButton and abs(event.position().x() - self._drag_origin_x) < 4:
+                self._seek_at(event.position().x(), force=True)
+        elif mode == "scrub":
+            self._seek_at(event.position().x(), force=True)
+        elif mode == "select" and self._drag_clip is not None:
+            # Clamp to anchor clip: never mix source-relative times across cuts.
+            clip = self._drag_clip
+            begin = self._project_map.starts[clip.id]
+            end = begin + clip.end(self._project_map.durations[clip.media_id]) - clip.source_in
+            a = max(begin, min(end, self._drag_start))
+            b = max(begin, min(end, self._seconds_at(event.position().x())))
+            a, b = sorted((a, b))
+            if b > a and abs(self._x(b) - self._x(a)) >= 4:
+                source_a = map_time(clip, begin, a, self._project_map.durations[clip.media_id], to_source=True)
+                source_b = map_time(clip, begin, b, self._project_map.durations[clip.media_id], to_source=True)
+                self.set_selection(clip.id, source_a, source_b)
+                self.selectionChangedClip.emit(clip.id, source_a, source_b)
+                self.selectionChanged.emit(clip.media_id, source_a, source_b)
+        self._drag_clip = None
+        self._drag_start = None
+        self.update()
+        event.accept()
 
-    def wheelEvent(self, event):
+    def wheelEvent(self, event):  # noqa: N802
         if self._project_map is None:
             return super().wheelEvent(event)
+        delta = event.angleDelta().y() / 120.
+        if not delta:
+            delta = event.pixelDelta().y() / 120.
+        if not delta:
+            return super().wheelEvent(event)
         if event.modifiers() & Qt.KeyboardModifier.AltModifier:
-            self._track_scroll.setValue(self._track_scroll.value() - event.angleDelta().y() // 120)
+            self._track_scroll.setValue(self._track_scroll.value() - round(delta))
         elif event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-            self.set_view(pan=self._pan - event.angleDelta().y() / 1200.)
+            if self._zoom > 1.:
+                self.set_view(pan=self._pan - delta / (8. * self._zoom), user=True)
         else:
-            self.set_view(zoom=self._zoom * (1.25 if event.angleDelta().y() > 0 else .8))
+            # Cursor-anchored zoom: the point under the pointer stays fixed.
+            ratio = max(0., min(1., (event.position().x() - self._track_rect().left()) /
+                                max(1., self._track_rect().width())))
+            anchor = self._seconds_at(event.position().x())
+            target_zoom = max(1., min(128., self._zoom * 1.25 ** delta))
+            duration = self._duration_seconds()
+            span = duration / target_zoom
+            available = duration - span
+            new_pan = ((anchor - ratio * span) / available) if available > 0 else 0.
+            self.set_view(zoom=target_zoom, pan=new_pan, user=True)
         event.accept()

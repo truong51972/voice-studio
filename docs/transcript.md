@@ -6,7 +6,7 @@ Raw STT hypotheses remain immutable in \`TranscriptDocument.raw\`; edits
 are a separate revisioned view. Any word timestamps belonging to edited
 text are cleared because they would otherwise be misleading.
 
-Exports: TXT, SRT, Markdown and JSON, with media source provenance, coherent
+Exports: **WebVTT (.vtt)**, SRT, TXT, Markdown and JSON, with media source provenance, coherent
 media-local timestamps and any user corrections. Full-source JSON contains both raw
 inference and edited segments. SRT uses valid \`HH:MM:SS,mmm\` timestamps
 and sequential cue numbering. Empty text is omitted.
@@ -25,8 +25,29 @@ analysis can resolve that warning. Reapplying the same analysis preserves review
 warnings from a cluster split. Explicit human assignments/clears, legacy labels
 without provenance and text corrections are preserved; raw hypotheses are unchanged.
 Confirmed aliases resolve historical IDs.
-`Export selected source range only` clips export timestamps to the bottom timeline
-selection. **All selected export formats exclude untimed boundary speech.** Only
+The standard **WebVTT (.vtt) file** under the project's `reviews/` directory
+contains edited subtitle cues and is authoritative for cue text and timing.
+The adjacent JSON document remains only for raw inference provenance,
+revision history, word timestamps and attribution metadata. Existing projects
+with JSON-only reviews still load; their next save generates a WebVTT track.
+You can edit this .vtt in a compatible external subtitle editor and changes to
+cues will load again on project reopen. Invalid or duplicate WebVTT cue IDs are
+reported rather than silently converted into incorrect subtitles.
+
+Use **Import .vtt/.srt…** in the STT inspector (or File menu) to replace the
+**reviewed** cues of an already-transcribed source. Original STT hypotheses
+remain unchanged. WebVTT supports cue identifiers, UTF-8 Vietnamese, multiline
+text and optional overlapping time ranges. Importing an SRT creates stable
+application cue identifiers and can be exported back to .vtt/.srt.
+
+In the **STT** inspector, choose a scope next to **Export transcript…**:
+**Current source** (default), **Selected source range**, or **Whole project · clip order**.
+Export defaults to `.vtt` with official `WEBVTT` header and dot-separated
+millisecond cues. Use `.srt` for broadly compatible numbered comma-timestamp
+cues; Markdown/TXT/JSON remain available as reporting or archive formats.
+The File → Export transcript menu and transcript context menu use that same action.
+After saving, **Open output folder** opens the destination. Source-range export clips
+export timestamps to the bottom timeline selection. **All selected export formats exclude untimed boundary speech.** Only
 fully contained timestamped words are included from partial segments. If word
 timings are unavailable (including after a text edit), boundary text is omitted;
 full segments inside the range retain reviewed text. TXT/Markdown include source
@@ -37,10 +58,26 @@ history and whole-source inference metadata. Partial JSON entries are marked
 subtitle cue. The export status and Help describe this policy. Full-source exports
 retain complete reviewed text; full-source JSON retains raw and edited views.
 
-**Export all** follows ordered project clips and trims. Markdown/TXT use explicit
+**Whole project** export follows ordered project clips and trims. WebVTT/SRT
+use project-relative timestamps; Markdown/TXT use explicit
 file/range boundaries and source-relative timestamps. SRT uses project-relative
 cue times and source filenames. JSON includes each clip's media ID, source range,
 project start and selected reviewed entries, using the same selection policy.
 Segment/word times are source seconds; `timeline_start` is project seconds.
 Source model timestamps
 and stored reviews are not shifted or overwritten by an export.
+
+## Synchronized subtitle review
+
+The existing media preview displays the active **edited** transcript segment as a
+compact one- or two-line soft subtitle. It uses the same **source seconds** as
+playback, transcript row seeks and speaker/locator overlays, while project clips
+still respect their own trim and project timeline mapping. It automatically
+updates after edits, split/merge/revert, diarization labels, speaker renaming,
+source changes and project reopen. Overlapping segments resolve predictably,
+with later-starting segments taking precedence and end times exclusive. Empty
+segments and playheads without transcript coverage have no subtitle.
+
+Use **View → Show subtitles** to toggle the overlay (enabled by default).
+This preference is stored in the project. SRT files remain separate exports;
+subtitles are not embedded into the video.

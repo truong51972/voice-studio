@@ -30,7 +30,7 @@ class DiarizationPanel(QWidget):
         choose = QHBoxLayout()
         self.model_folder = QLineEdit()
         self.model_folder.setReadOnly(True)
-        self.model_folder.setPlaceholderText("Import Community-1 through Settings → Models")
+        self.model_folder.setPlaceholderText("Community-1 model directory")
         browse = QPushButton("Manage models…")
         browse.clicked.connect(lambda: self.modelsRequested.emit("pyannote-community-1"))
         choose.addWidget(self.model_folder, 1)

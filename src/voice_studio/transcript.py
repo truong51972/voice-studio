@@ -10,6 +10,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
+from .subtitle_formats import SubtitleCue, serialize_subtitles
 
 @dataclass(frozen=True, slots=True)
 class TranscriptEntry:
@@ -126,6 +127,33 @@ class TranscriptDocument:
         self.revision += 1
         self.history.append({"revision": self.revision, "operation": operation, "ids": ids})
 
+    def subtitle_cues(self) -> list[SubtitleCue]:
+        """The edited cue text/timing that WebVTT stores as the portable source."""
+        return [SubtitleCue(entry.id, entry.start, entry.end, entry.text)
+                for entry in self.edited]
+
+    def load_subtitle_cues(self, cues: list[SubtitleCue]) -> None:
+        """Replace reviewed cues from an edited VTT/SRT, never raw hypotheses.
+
+        Keep attribution only for matching stable cue IDs. Word timestamps are
+        invalidated when an external editor changes text or cue timing.
+        """
+        from dataclasses import replace as dc_replace
+        by_id = {entry.id: entry for entry in self.edited}
+        updated = []
+        for cue in cues:
+            previous = by_id.get(cue.id)
+            if previous is None:
+                updated.append(TranscriptEntry(cue.id, cue.start, cue.end, cue.text))
+            else:
+                changed = ((previous.start, previous.end, previous.text)
+                           != (cue.start, cue.end, cue.text))
+                updated.append(dc_replace(previous, start=cue.start, end=cue.end,
+                                          text=cue.text, words=() if changed else previous.words))
+        if updated != self.edited:
+            self.edited = updated
+            self._record("import_subtitles", [cue.id for cue in cues])
+
     def find(self, phrase: str) -> list[int]:
         query = phrase.casefold().strip()
         return [i for i, s in enumerate(self.edited) if query in s.text.casefold()]
@@ -197,6 +225,8 @@ def export_text(document: TranscriptDocument, kind: str, *, source_range: tuple[
     selection = document.selected_export(*source_range) if source_range is not None else None
     entries = sorted((TranscriptEntry.from_dict(row) for row in selection['selected_segments'])
                      if selection is not None else document.edited, key=lambda s: (s.start, s.end))
+    if kind == "vtt":
+        return serialize_subtitles([SubtitleCue(s.id, s.start, s.end, s.text) for s in entries])
     if kind == "json":
         return json.dumps(selection if selection is not None else document.serialize(), ensure_ascii=False, indent=2)
     if kind == "txt":

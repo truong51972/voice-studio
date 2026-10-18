@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+from time import monotonic
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemDelegate, QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout,
     QHBoxLayout, QInputDialog, QLabel, QPushButton, QLineEdit,
@@ -13,6 +16,8 @@ from PySide6.QtWidgets import (
 from ...model_registry import descriptors, get_model, preflight
 from ...task_runtime import TaskManager, TaskRequest
 from ...transcript import TranscriptDocument, export_text
+from ...subtitle_formats import parse_subtitles
+from ...subtitle_index import SubtitleIndex
 from ..timecode import _fmt_time
 
 
@@ -34,8 +39,16 @@ class STTPanel(QWidget):
         self.document: TranscriptDocument | None = None
         self.speaker_names = {}
         self.export_range = None
+        self.last_export_path: Path | None = None
+        self.before_export = lambda: None
+        self._cue_index = SubtitleIndex()
+        self._cue_rows = {}
+        self._user_navigation_until = 0.
         layout = QVBoxLayout(self)
         settings = QFormLayout()
+        advanced = QFormLayout()
+        self.transcription_settings = QWidget(self)
+        self.transcription_settings.setLayout(advanced)
         self.model = QComboBox()
         for descriptor in descriptors("stt"):
             self.model.addItem(descriptor.label, descriptor.id)
@@ -46,27 +59,29 @@ class STTPanel(QWidget):
         self.device.addItem("Auto · GPU if verified", "auto")
         self.device.addItem("NVIDIA CUDA", "cuda")
         self.device.addItem("CPU", "cpu")
-        settings.addRow("Device", self.device)
+        advanced.addRow("Device", self.device)
         self.gpu_precision = QComboBox()
         self.gpu_precision.addItem("FP16 · fast", "float16")
         self.gpu_precision.addItem("INT8 + FP16 · lower VRAM", "int8_float16")
-        settings.addRow("GPU precision", self.gpu_precision)
+        advanced.addRow("GPU precision", self.gpu_precision)
         self.device.currentIndexChanged.connect(
             lambda _index: self.gpu_precision.setEnabled(self.device.currentData() != "cpu"))
         self.models_button = QPushButton("Manage models…")
         self.models_button.clicked.connect(lambda: self.modelsRequested.emit(str(self.model.currentData())))
-        settings.addRow(self.models_button)
+        advanced.addRow(self.models_button)
         self.language = QComboBox()
         for label, value in (("Auto detect", "auto"), ("Vietnamese", "vi"), ("English", "en")):
             self.language.addItem(label, value)
-        settings.addRow("Language", self.language)
+        advanced.addRow("Language", self.language)
         self.vad = QCheckBox("Speech filtering (VAD)")
         self.vad.setChecked(True)
         self.words = QCheckBox("Word timestamps")
-        self.export_selection = QCheckBox("Export selected source range only")
-        settings.addRow(self.vad)
-        settings.addRow(self.words)
-        settings.addRow(self.export_selection)
+        self.export_selection = QCheckBox("Export selected source range only", self)
+        advanced.addRow(self.vad)
+        advanced.addRow(self.words)
+        # Kept as a compatibility flag for existing integrations; the visible
+        # scope chooser by the reviewed result is the authoritative UX.
+        self.export_selection.hide()
         layout.addLayout(settings)
 
         commands = QHBoxLayout()
@@ -77,11 +92,46 @@ class STTPanel(QWidget):
         self.cancel_button.clicked.connect(self.cancel)
         commands.addWidget(self.run_button)
         commands.addWidget(self.cancel_button)
+        self.options_toggle = QPushButton("Options ▸")
+        self.options_toggle.setCheckable(True)
+        self.options_toggle.setToolTip("Language, device, GPU precision, VAD and word timestamps")
+        self.options_toggle.toggled.connect(
+            lambda expanded: (
+                self.transcription_settings.setVisible(expanded),
+                self.options_toggle.setText("Options ▾" if expanded else "Options ▸"),
+            ))
+        commands.addWidget(self.options_toggle)
         layout.addLayout(commands)
+        layout.addWidget(self.transcription_settings)
+        self.transcription_settings.hide()
         self.status = QLabel("Select media and install a model in Model Manager.")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
 
+        reviewed_header = QHBoxLayout()
+        reviewed_header.addWidget(QLabel("Reviewed transcript"), 1)
+        self.export_scope = QComboBox()
+        self.export_scope.addItem("Current source", "source")
+        self.export_scope.addItem("Selected source range", "range")
+        self.export_scope.addItem("Whole project · clip order", "project")
+        self.export_scope.setToolTip("Current source uses source time; whole project follows clip trims/order.")
+        # Scope is chosen when exporting rather than consuming the narrow
+        # right-hand inspector toolbar on every frame.
+        self.export_scope.setParent(self)
+        self.export_scope.hide()
+        self.import_button = QPushButton("Import…")
+        self.import_button.setToolTip("Load standard subtitles as a new reviewed cue track; raw STT is preserved.")
+        self.import_button.clicked.connect(self._import_subtitles)
+        reviewed_header.addWidget(self.import_button)
+        self.export_button = QPushButton("Export transcript…")
+        self.export_button.clicked.connect(self._choose_export)
+        self.export_button.setEnabled(False)
+        reviewed_header.addWidget(self.export_button)
+        self.open_folder_button = QPushButton("Open output folder")
+        self.open_folder_button.setVisible(False)
+        self.open_folder_button.clicked.connect(self._open_export_folder)
+        reviewed_header.addWidget(self.open_folder_button)
+        layout.addLayout(reviewed_header)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search transcript…")
         self.search.textChanged.connect(self._filter)
@@ -95,11 +145,9 @@ class STTPanel(QWidget):
         self.merge_button.clicked.connect(self._merge)
         self.reset_button = QPushButton("Revert")
         self.reset_button.clicked.connect(self._reset)
-        self.export_button = QPushButton("Export")
-        self.export_button.clicked.connect(self._export)
         for button in (
             self.speaker_button, self.split_button, self.merge_button,
-            self.reset_button, self.export_button,
+            self.reset_button,
         ):
             editor_actions.addWidget(button)
         layout.addLayout(editor_actions)
@@ -115,6 +163,8 @@ class STTPanel(QWidget):
         self.table.itemChanged.connect(self._edit_text)
         self.table.itemDoubleClicked.connect(lambda _item: self.editingStarted.emit())
         self.table.cellClicked.connect(self._seek)
+        self.table.viewport().installEventFilter(self)
+        self.table.verticalScrollBar().sliderPressed.connect(self._mark_user_navigation)
         layout.addWidget(self.table, 1)
         self.refresh_models()
         self._timer = QTimer(self)
@@ -153,6 +203,9 @@ class STTPanel(QWidget):
         self._source = source
         self.raw_result = None
         self.document = None
+        self.last_export_path = None
+        self.open_folder_button.setVisible(False)
+        self.export_button.setEnabled(False)
         self.table.setRowCount(0)
 
     def start(self) -> None:
@@ -203,6 +256,7 @@ class STTPanel(QWidget):
         self.raw_result = result
         self.document = TranscriptDocument(result)
         self._render()
+        self.export_button.setEnabled(True)
         self.status.setText(
             f"{len(self.document.edited)} transcript segments · {result['duration']:.1f}s"
         )
@@ -218,6 +272,7 @@ class STTPanel(QWidget):
             "segments": [s.as_dict() for s in document.raw],
         }
         self._render()
+        self.export_button.setEnabled(True)
 
     def _render(self) -> None:
         if self.document is None:
@@ -234,6 +289,8 @@ class STTPanel(QWidget):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(i, col, item)
         self.table.blockSignals(False)
+        self._cue_index.set_entries(self.document.edited)
+        self._cue_rows = {entry.id: index for index, entry in enumerate(self.document.edited)}
         self._filter(self.search.text())
 
     def _filter(self, text: str) -> None:
@@ -250,6 +307,7 @@ class STTPanel(QWidget):
         row = item.row()
         if row < len(self.document.edited):
             self.document.replace(self.document.edited[row].id, text=item.text())
+            self._cue_index.set_entries(self.document.edited)
             self.documentChanged.emit()
 
     def _selected_rows(self) -> list[int]:
@@ -345,55 +403,153 @@ class STTPanel(QWidget):
         self._render()
         self.documentChanged.emit()
 
-    def _export(self) -> None:
+    def _import_subtitles(self) -> None:
         if self.document is None:
-            self.status.setText("No transcript to export.")
+            self.status.setText("Transcribe or open an existing reviewed source before importing subtitles.")
             return
-        path, selected = QFileDialog.getSaveFileName(
-            self, "Export reviewed transcript", "",
-            "Markdown (*.md);;SubRip (*.srt);;Plain text (*.txt);;JSON (*.json)",
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import subtitle cues", "",
+            "Subtitle files (*.vtt *.srt);;WebVTT (*.vtt);;SubRip (*.srt)",
         )
         if not path:
             return
-        format_name = Path(path).suffix.lstrip(".").lower()
-        if format_name not in ("md", "srt", "txt", "json"):
-            format_name = "md"
-            path += ".md"
-        document = TranscriptDocument.restore(self.document.serialize())
-        if self.session and self.session.project:
-            item = next((m for m in self.session.project.items if m.source == self._source), None)
-            if item:
-                document.raw_metadata.update(current_source=item.source, media_id=item.id, content_fingerprint=item.fingerprint)
-        from dataclasses import replace
-        document.edited = [replace(s, speaker_id=self.speaker_names.get(s.speaker_id, s.speaker_id)) for s in document.edited]
+        kind = Path(path).suffix.lower().lstrip(".")
+        if kind not in ("vtt", "srt"):
+            self.status.setText("Choose a .vtt or .srt subtitle file")
+            return
+        try:
+            cues = parse_subtitles(Path(path).read_text(encoding="utf-8-sig"), kind)
+            if not cues:
+                raise ValueError("Subtitle file has no valid cues")
+            self.editingStarted.emit()
+            self.document.load_subtitle_cues(cues)
+            self._render()
+            self.documentChanged.emit()
+            self.status.setText(f"Imported {len(cues)} {kind.upper()} cues into reviewed transcript")
+        except (OSError, UnicodeError, ValueError) as exc:
+            self.status.setText(f"Subtitle import failed: {exc}")
+
+    def _open_export_folder(self) -> None:
+        if self.last_export_path is not None:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_export_path.parent)))
+
+    def _choose_export(self) -> None:
+        labels = ["Current source", "Selected source range", "Whole project · clip order"]
+        current = max(0, self.export_scope.currentIndex())
+        selected, ok = QInputDialog.getItem(
+            self, "Export transcript", "Scope", labels, current, editable=False)
+        if not ok:
+            return
+        index = labels.index(selected)
+        self.export_scope.setCurrentIndex(index)
+        self._export(scope=str(self.export_scope.currentData()))
+
+    def _export(self, scope: str | None = None) -> None:
+        # The same command is shared by the visible result action, File menu,
+        # transcript context menu and source/project export entry points.
+        if isinstance(scope, bool):  # QAction.clicked passes its checked bool.
+            scope = None
+        scope = scope or ("range" if self.export_selection.isChecked()
+                          else str(self.export_scope.currentData()))
+        project = self.session.project if self.session else None
+        if scope not in ("source", "range", "project"):
+            self.status.setText("Choose a valid transcript export scope")
+            return
+        if scope == "project":
+            if project is None or not any(project.latest_analysis(m.id, "stt") for m in project.items):
+                self.status.setText("Transcribe at least one project source before exporting")
+                return
+        elif self.document is None:
+            self.status.setText("No reviewed transcript to export.")
+            return
         source_range = None
-        if self.export_selection.isChecked():
-            if not self.export_range:
+        if scope == "range":
+            if not self.export_range or self.export_range[1] <= self.export_range[0]:
                 self.status.setText("Choose a valid source selection before exporting")
                 return
-            start, end = self.export_range
-            if end <= start:
-                self.status.setText("Choose a valid source selection before exporting")
-                return
-            source_range = (start, end)
-        Path(path).write_text(export_text(document, format_name, source_range=source_range), encoding="utf-8")
-        note = ' · Boundary text includes only fully timed words; unavailable text omitted.' if source_range else ''
-        self.status.setText(f"Exported {Path(path).name}{note}")
+            source_range = self.export_range
+
+        stem = (project.name if scope == "project" and project else
+                Path(self._source or self.document.raw_metadata.get("source", "transcript")).stem)
+        suffix = "-project-transcript" if scope == "project" else "-reviewed-transcript"
+        suggested = f"{stem}{suffix}.vtt"
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Export reviewed transcript", suggested,
+            "WebVTT (*.vtt);;SubRip (*.srt);;Markdown (*.md);;Plain text (*.txt);;JSON (*.json)",
+        )
+        if not path:
+            return
+        destination = Path(path)
+        formats = {"vtt", "srt", "md", "txt", "json"}
+        kind = destination.suffix.lstrip(".").lower()
+        if not kind:
+            kind = next((extension for extension in ("vtt", "srt", "md", "txt", "json")
+                         if f"*.{extension}" in selected), "vtt")
+            destination = destination.with_suffix("." + kind)
+        if kind not in formats:
+            self.status.setText("Use .vtt, .srt, .md, .txt or .json for transcript export")
+            return
+        try:
+            self.before_export()  # Flush currently edited text before combined export.
+            if scope == "project":
+                content = project.combined_export(kind)
+            else:
+                from dataclasses import replace
+                document = TranscriptDocument.restore(self.document.serialize())
+                if project:
+                    item = next((m for m in project.items if m.source == self._source), None)
+                    if item:
+                        document.raw_metadata.update(
+                            current_source=item.source, media_id=item.id,
+                            content_fingerprint=item.fingerprint,
+                        )
+                document.edited = [
+                    replace(entry, speaker_id=self.speaker_names.get(entry.speaker_id, entry.speaker_id))
+                    for entry in document.edited
+                ]
+                content = export_text(document, kind, source_range=source_range)
+            # Atomic replacement avoids leaving half-written exports on an error.
+            temporary = destination.with_name(destination.name + ".part")
+            try:
+                temporary.write_text(content, encoding="utf-8")
+                os.replace(temporary, destination)
+            finally:
+                if temporary.exists():
+                    temporary.unlink()
+            self.last_export_path = destination.resolve()
+            self.open_folder_button.setVisible(True)
+            note = (" · Boundary words only; untimed boundary text omitted."
+                    if scope in ("range", "project") else "")
+            self.status.setText(f"Exported {destination.name} ({scope}){note}")
+        except (OSError, ValueError, KeyError) as exc:
+            self.status.setText(f"Export failed: {exc}")
 
     def _seek(self, row: int, _column: int) -> None:
         if self.document is not None and row < len(self.document.edited):
             self.seekRequested.emit(float(self.document.edited[row].start))
 
+    def _mark_user_navigation(self) -> None:
+        # Playback should not steal focus/selection while a user reads or edits.
+        self._user_navigation_until = monotonic() + 5.
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched is self.table.viewport() and event.type() in (
+                QEvent.Type.Wheel, QEvent.Type.MouseButtonPress):
+            self._mark_user_navigation()
+        return super().eventFilter(watched, event)
+
     def set_playhead(self, seconds: float) -> None:
-        if self.document is None:
+        if self.document is None or self.table.state() == QAbstractItemView.State.EditingState:
             return
-        if self.table.state() == QAbstractItemView.State.EditingState:
+        if monotonic() < self._user_navigation_until:
             return
-        for i, segment in enumerate(self.document.edited):
-            if segment.start <= seconds < segment.end and not self.table.isRowHidden(i):
-                if self.table.currentRow() != i:
-                    self.table.selectRow(i)
-                break
+        cue = self._cue_index.at(seconds)
+        row = self._cue_rows.get(cue.id) if cue else None
+        if row is not None and not self.table.isRowHidden(row):
+            if self.table.currentRow() != row:
+                self.table.selectRow(row)
+                self.table.scrollToItem(self.table.item(row, 3),
+                                        QAbstractItemView.ScrollHint.PositionAtCenter)
 
     def commit_edit(self):
         if self.table.state() == QAbstractItemView.State.EditingState:

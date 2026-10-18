@@ -24,7 +24,7 @@ class EditorActionsMixin:
             if shortcut:
                 action.setShortcut(QKeySequence(shortcut))
             action.triggered.connect(lambda _checked=False, fn=callback: self._invoke_action(fn))
-            self.menus[menu].addAction(action)
+            (self.menus[menu] if isinstance(menu, str) else menu).addAction(action)
             self.actions[key] = action
             return action
 
@@ -33,9 +33,10 @@ class EditorActionsMixin:
         self.recent_menu = self.menus["File"].addMenu("Recent projects")
         self.recent_menu.aboutToShow.connect(self._refresh_recent_menu)
         add("import", "Import media", "File", self.projects_panel._add, "Ctrl+I")
+        add("import_subtitles", "Import subtitles (.vtt/.srt)", "File", self.stt_panel._import_subtitles)
         add("save", "Save project", "File", self._save, "Ctrl+S")
-        add("export", "Export project", "File", self.projects_panel._export, "Ctrl+Shift+E")
-        add("export_stt", "Export transcript", "File", self.stt_panel._export)
+        add("export", "Export project transcript", "File", self.projects_panel._export, "Ctrl+Shift+E")
+        add("export_stt", "Export transcript", "File", self.stt_panel._choose_export)
 
         add("move_back", "Move clip earlier", "Edit", lambda: self._move_clip(-1))
         add("move_forward", "Move clip later", "Edit", lambda: self._move_clip(1))
@@ -51,13 +52,26 @@ class EditorActionsMixin:
         add("detect", "Auto Detect Speakers", "Process", self._process_auto_detect)
         add("match", "Match manual references", "Process", self._process_match)
         add("compare", "Compare project speakers", "Process", self._compare)
-        add("summarize", "Summarize", "Process", self._run_summary)
+        # Optional AI summarization remains available, but is not a permanent
+        # navigation destination. The panel owns model settings and the Run button.
+        add("summarize", "Summarize…", "Process", lambda: self._open_inspector_tool("summary"))
         add("cancel", "Cancel jobs", "Process", self.session.cancel, "Escape")
 
         add("play", "Play / Pause", "View", self.playback.toggle, "Space")
         add("preview", "Preview selected range", "View", self._preview_selection)
         add("zoom_fit", "Fit timeline", "View", lambda: (self.zoom.setValue(1), self.pan.setValue(0)))
-        add("raw", "Raw AI results", "View", lambda: self.inspector_tabs.setCurrentWidget(self.raw_output.parentWidget()))
+        self.advanced_menu = self.menus["View"].addMenu("Advanced tools")
+        add("analysis", "Analysis / similarity", self.advanced_menu,
+            lambda: self._open_inspector_tool("analysis"))
+        add("segments_view", "Detection segments", self.advanced_menu,
+            lambda: self._open_inspector_tool("segments"))
+        add("project_details", "Project details", self.advanced_menu,
+            lambda: self._open_inspector_tool("project"))
+        add("raw", "Raw AI results", self.advanced_menu,
+            lambda: self._open_inspector_tool("raw"))
+        subtitles = add("subtitles", "Show subtitles", "View", self._toggle_subtitles)
+        subtitles.setCheckable(True)
+        subtitles.setChecked(True)
         for key, name, widget in (
             ("sources", "Sources panel", self.projects_panel),
             ("inspector", "Inspector", self.inspector_tabs),
@@ -68,7 +82,8 @@ class EditorActionsMixin:
             action.setChecked(True)
 
         add("models", "Models", "Settings", self._open_models)
-        add("defaults", "Inference defaults", "Settings", lambda: self.inspector_tabs.setCurrentIndex(1))
+        add("defaults", "Inference defaults", "Settings",
+            lambda: self._open_inspector_tool("analysis"))
         add("storage", "Model storage", "Settings", self._open_models)
 
         add("docs", "Documentation", "Help", self._show_documentation)
@@ -83,8 +98,7 @@ class EditorActionsMixin:
         for key in ("speaker", "split", "merge", "revert", "export_stt"):
             self.stt_panel.table.addAction(self.actions[key])
         for button in (self.stt_panel.speaker_button, self.stt_panel.split_button,
-                       self.stt_panel.merge_button, self.stt_panel.reset_button,
-                       self.stt_panel.export_button):
+                       self.stt_panel.merge_button, self.stt_panel.reset_button):
             button.hide()
         app = QApplication.instance()
         app.installEventFilter(self)
@@ -122,7 +136,7 @@ class EditorActionsMixin:
 
     def _show_documentation(self):
         dialog = QDialog(self)
-        dialog.setWindowTitle("Voice Studio · Documentation")
+        dialog.setWindowTitle("Documentation")
         dialog.resize(730, 620)
         layout = QVBoxLayout(dialog)
         layout.addWidget(self._help())
@@ -167,7 +181,9 @@ class EditorActionsMixin:
         enabled = {
             "new": not working, "open": not working,
             "import": project and not working, "save": project,
-            "export": project, "export_stt": transcript,
+            "export": project and any(self.session.project.latest_analysis(m.id, "stt")
+                for m in self.session.project.items), "export_stt": transcript,
+            "import_subtitles": transcript,
             "move_back": selection and not working, "move_forward": selection and not working,
             "trim": selection and not working,
             "split": transcript and len(rows) == 1, "merge": transcript and len(rows) == 2 and rows[1] == rows[0] + 1,
@@ -178,7 +194,11 @@ class EditorActionsMixin:
             "compare": project and not working, "summarize": transcript and not working,
             "cancel": working, "play": selection and not self._typing(),
             "preview": selection, "raw": project,
+            "segments_view": project, "project_details": project,
+            "analysis": True,
         }
+        self.stt_panel.export_button.setEnabled(bool(transcript or enabled["export"]))
+        self.cancel_button.setVisible(working)
         for key, value in enabled.items():
             self.actions[key].setEnabled(bool(value))
         for key, widget in (("sources", self.projects_panel),

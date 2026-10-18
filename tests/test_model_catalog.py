@@ -2,6 +2,7 @@ import json
 import shutil
 import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,20 @@ def test_all_current_models_and_defaults_come_from_catalog():
     assert INFERENCE_PROFILES["fast"].model_sha256 == "357a834f702b80161e5b981182c038e18553c1f2ca752ed6cec2052365d4129b"
     assert INFERENCE_PROFILES["accurate"].model_size == 71_441_526
     assert INFERENCE_PROFILES["accurate"].model_sha256 == "bf1a75b9930474cf3389ef415e6e5d38ca96fea4a3a00f7e301d080a58ee2239"
+
+
+def test_locator_catalog_uses_english_names_and_descriptions():
+    locator = {model.id: model for model in descriptors("locator")}
+    assert locator["locator-fast"].label == "Fast · CAM++"
+    assert locator["locator-accurate"].label == "Accurate · ERes2NetV2"
+    for model in locator.values():
+        # Retain the UI's separator (·), but prevent accented Vietnamese
+        # phrases from leaking back into the English model catalog.
+        for value in (model.label, model.description):
+            assert value and not any(
+                unicodedata.combining(char)
+                for char in unicodedata.normalize("NFD", value)
+            )
 
 
 @pytest.mark.parametrize("change", [

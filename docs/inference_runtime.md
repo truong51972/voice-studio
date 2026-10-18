@@ -8,10 +8,10 @@ There are no feature extras or reduced-runtime build variants. Development,
 test and build tools remain in the default `dev` group; weights remain explicit
 user installations. `uv run poe start` launches without downloading weights.
 
-The target matrix is **Windows x64 and Linux x64, Python 3.11 and 3.12**.
+The target matrix is **Windows x64 and Linux x64, Python 3.12 only**.
 The lock requires compatible wheels for both targets and CI runs the same
 model-free test and import commands on each. This is a configured test matrix,
-not a record that all four CI jobs or clean-machine release QA have passed.
+not a record that the current two CI jobs or clean-machine release QA have passed.
 Linux x64/Python 3.12 was checked locally for this foundation change.
 macOS (including Apple Silicon), Windows ARM and Linux ARM are outside the
 current matrix. In particular modern Torch/pyannote does not support the

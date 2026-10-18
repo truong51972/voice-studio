@@ -44,6 +44,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self._selection_restored = False
         self._outside_clip = False
         self._pending_review = False
+        self._waveform_cache = {}
         self._player = QMediaPlayer(self)
         self._audio_output = QAudioOutput(self)
         self._player.setAudioOutput(self._audio_output)
@@ -56,6 +57,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self.session.changed.connect(self._refresh_project)
         self.session.resultReady.connect(self._result_ready)
         self.session.statusChanged.connect(self._status)
+        self.session.progressChanged.connect(self.stt_progress.show_progress)
+        self.stt_panel.before_export = self._prepare_transcript_export
         self.session.prepare_result = self._before_result
         self.session.prepare_close = self._prepare_close
         self.stt_panel.editingStarted.connect(self.playback.pause)
@@ -89,6 +92,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         for label in (self.preview_status, self.speakers_panel.status, self.stt_panel.status, self.summary_panel.status):
             label.setToolTip(text)
         self.cancel_button.setEnabled(bool(self.session.jobs))
+        self.cancel_button.setVisible(bool(self.session.jobs))
         for panel in (self.stt_panel, self.diarization_panel, self.summary_panel):
             panel.cancel_button.setEnabled(bool(self.session.jobs))
 
@@ -103,12 +107,19 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self._selection_restored = False
             self._outside_clip = False
             self._pending_review = False
+            self.stt_progress.clear()
+            self._waveform_cache.clear()
+            # A new project always starts in the simple reviewed transcript view.
+            self.inspector_tabs.setCurrentWidget(self.stt_panel)
+            for widget, _label in self._advanced_inspector_pages.values():
+                self.inspector_tabs.setTabVisible(self.inspector_tabs.indexOf(widget), False)
             self.playback.set_project(project)
             self.stt_panel.set_media(None)
             self.diarization_panel.set_media(None)
             self.summary_panel.reset()
             self._bundle = None
             self.video_widget.overlay.set_bundle(None)
+            self.video_widget.overlay.set_subtitles([])
             self.timeline.set_bundle(None)
             self._project_position(0., 0.)
             self.pages.setCurrentIndex(1)
@@ -150,6 +161,46 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self._guard(self.playback.select_clip, clip.id)
         self.cancel_button.setEnabled(bool(self.session.jobs))
 
+    def _update_review_timeline(self):
+        """Refresh one source's reviewed text without rereading waveforms/results.
+
+        Called after a user correction; structural changes to clips and completed
+        inference still use the full project timeline builder.
+        """
+        project, item = self.session.project, self._current_item()
+        document = self.stt_panel.document
+        mapping = self.timeline._project_map
+        if not project or not item or not document or not mapping:
+            return
+        old_annotations = self.timeline._annotations
+        insertion = next((i for i, a in enumerate(old_annotations)
+                          if a.get("kind") == "transcript" and a.get("media_id") == item.id),
+                         len(old_annotations))
+        annotations = [a for a in old_annotations
+                       if not (a.get("kind") == "transcript" and a.get("media_id") == item.id)]
+        refreshed = []
+        for clip in project.clips:
+            if clip.media_id != item.id:
+                continue
+            clip_start = mapping.starts[clip.id]
+            clip_end = clip.end(item.duration)
+            for entry in document.edited:
+                start = max(entry.start, clip.source_in)
+                end = min(entry.end, clip_end)
+                if end <= start:
+                    continue
+                refreshed.append({
+                    "start": map_time(clip, clip_start, start, item.duration, to_source=False),
+                    "end": map_time(clip, clip_start, end, item.duration, to_source=False),
+                    "lane": "Transcript", "text": entry.text, "color": "#8fa4bd",
+                    "overlap": False, "kind": "transcript", "media_id": item.id,
+                })
+        # Keep the Transcript lane at its original visual position while
+        # replacing only its cue annotations, instead of making it jump below
+        # Speaker/Match lanes after every text edit.
+        annotations[insertion:insertion] = refreshed
+        self.timeline.update_annotations(annotations)
+
     def _render_timeline(self):
         project = self.session.project
         try:
@@ -162,20 +213,31 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         for clip in project.clips:
             item = project.get(clip.media_id)
             peaks_file = waveform_path(project.directory, item.fingerprint)
+            # Cache parsed waveform: opening 76-minute recordings or editing
+            # a subtitle must not decode the same peaks JSON every redraw.
             try:
-                peaks = json.loads(peaks_file.read_text())['peaks'] if peaks_file.is_file() else []
+                stat = peaks_file.stat()
+                signature = (stat.st_mtime_ns, stat.st_size)
+                cached = self._waveform_cache.get(item.fingerprint)
+                if cached is not None and cached[0] == signature:
+                    peaks = cached[1]
+                else:
+                    peaks = json.loads(peaks_file.read_text(encoding="utf-8"))['peaks']
+                    self._waveform_cache[item.fingerprint] = (signature, peaks)
             except (ValueError, KeyError, OSError):
                 peaks = []
             label = Path(item.source).name + (f' [{item.status}]' if item.status in ('missing', 'changed') else '')
             sources.append({'clip': clip, 'name': label, 'duration': item.duration, 'peaks': peaks})
             if item.status in ('missing', 'changed'):
                 continue
-            def annotate(start, end, lane, text, color='#36c5d8', overlap=False):
+            def annotate(start, end, lane, text, color='#36c5d8', overlap=False,
+                         kind=None):
                 start, end = max(start, clip.source_in), min(end, clip.end(item.duration))
                 if end > start:
                     annotations.append({'start': map_time(clip, mapping.starts[clip.id], start, item.duration, to_source=False),
                                         'end': map_time(clip, mapping.starts[clip.id], end, item.duration, to_source=False),
-                                        'lane': lane, 'text': text, 'color': color, 'overlap': overlap})
+                                        'lane': lane, 'text': text, 'color': color,
+                                        'overlap': overlap, 'kind': kind, 'media_id': item.id})
             diarization = project.latest_analysis(item.id, 'diarization')
             if diarization:
                 for turn in project.mapped_turns(diarization):
@@ -184,7 +246,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                     annotate(turn['start'], turn['end'], name, name, speaker.color if speaker else '#777777', turn['overlap'])
             if item.status == 'completed':
                 for entry in project.review(item.id).edited:
-                    annotate(entry.start, entry.end, 'Transcript', entry.text, '#8fa4bd')
+                    annotate(entry.start, entry.end, 'Transcript', entry.text, '#8fa4bd',
+                             kind='transcript')
             locator = project.latest_analysis(item.id, 'locator')
             if locator:
                 for result in project.result(locator)['results']:
@@ -224,6 +287,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self._target_path = item.source
         self._current_fingerprint = item.fingerprint
         self.stt_panel.set_media(item.source)
+        self.video_widget.overlay.set_subtitles([])
         self.diarization_panel.set_media(item.source)
         if changed:
             self.summary_panel.reset()
@@ -253,6 +317,10 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self.projects_panel._active_document = document
             self.projects_panel._active_review_key = item.settings_key
             self.stt_panel.load_document(document)
+        self.video_widget.overlay.set_subtitles(
+            self.stt_panel.document.edited if self.stt_panel.document else [],
+            self.stt_panel.speaker_names,
+        )
         diarization = project.latest_analysis(item.id, 'diarization')
         if diarization:
             raw = project.result(diarization)
@@ -275,6 +343,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
 
     def _open_project_media(self, source, document):
         self.stt_panel.load_document(document)
+        self.video_widget.overlay.set_subtitles(document.edited, self.stt_panel.speaker_names)
         self.projects_panel._active_document = document
         if self.session.project and self.projects_panel.active_id:
             self.projects_panel._active_review_key = self.session.project.get(self.projects_panel.active_id).settings_key
@@ -314,8 +383,10 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 self._status('; '.join(blockers))
                 self._open_models(model.id)
                 return
-        for media_id in self._targets(all_sources):
-            self.session.analyze(task, media_id, options)
+        targets = self._targets(all_sources)
+        for index, media_id in enumerate(targets, start=1):
+            self.session.analyze(task, media_id, options,
+                                 progress_batch=(index, len(targets)) if task == "stt" else None)
 
     def _run_diarization(self):
         from ..model_catalog import default_model
@@ -452,8 +523,24 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         except (OSError, ValueError) as exc:
             self.playback.pause()
             self._status(f'Could not save transcript edits: {exc}')
+        self.video_widget.overlay.set_subtitles(
+            self.stt_panel.document.edited if self.stt_panel.document else [],
+            self.stt_panel.speaker_names,
+        )
         if self.session.project:
-            self._render_timeline()
+            self._update_review_timeline()
+
+    def _prepare_transcript_export(self):
+        # Save the reviewed source snapshot before a clip-ordered project export.
+        self.stt_panel.commit_edit()
+        self.projects_panel.save_active_review(self.stt_panel.document)
+
+    def _toggle_subtitles(self):
+        show = self.actions["subtitles"].isChecked()
+        self.video_widget.overlay.set_show_subtitles(show)
+        if self.session.project:
+            self.session.project.settings.setdefault("ui", {})["show_subtitles"] = show
+            self.session.project.save()
 
     def _set_selection(self, start, end):
         item = self._current_item()
@@ -471,6 +558,13 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
     def _selection_edited(self):
         self._set_selection(self.selection_start.value(), self.selection_end.value())
 
+    def _timeline_clip_selection(self, clip_id, start, end):
+        # A source may occur in multiple project clips; always preserve the
+        # precise clip selected instead of jumping to its first occurrence.
+        if self._clip_id != clip_id:
+            self._guard(self.playback.select_clip, clip_id)
+        self._set_selection(start, end)
+
     def _timeline_selection(self, media_id, start, end):
         item = self._current_item()
         if not item or item.id != media_id:
@@ -478,7 +572,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self._set_selection(start, end)
 
     def _manual_selection(self):
-        self.inspector_tabs.setCurrentIndex(0)
+        self.inspector_tabs.setCurrentWidget(self.speakers_panel)
         self.speakers_panel.mode.setCurrentIndex(1)
 
     def _preview_selection(self):
@@ -520,8 +614,11 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         del blocker
         project_label = '— (source preview)' if self._outside_clip else _fmt_time(project_seconds)
         self.time_label.setText(f'Project {project_label} · Source {_fmt_time(source_seconds)}')
-        self.timeline.set_position_seconds(project_seconds)
-        self.video_widget.overlay.set_position(source_seconds)
+        self.timeline.set_position_seconds(
+            project_seconds,
+            follow=self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState,
+        )
+        self.video_widget.overlay.set_position(source_seconds, inside_clip=not self._outside_clip)
         self.stt_panel.set_playhead(source_seconds)
 
     def _on_player_position(self, milliseconds):
@@ -585,6 +682,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             'stt_device': self.stt_panel.device.currentData(),
             'stt_precision': self.stt_panel.gpu_precision.currentData(),
             'selection': [self.selection_start.value(), self.selection_end.value()],
+            'show_subtitles': self.actions['subtitles'].isChecked(),
             'workspace_sizes': self.workspace_splitter.sizes(), 'timeline_sizes': self.root_splitter.sizes()}
         project.save()
         self._status('Project saved')

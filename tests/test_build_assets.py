@@ -121,3 +121,21 @@ def test_packaged_smoke_propagates_missing_native_dependency(monkeypatch):
                         lambda: {"pyannote.audio": "Native library missing"})
     with pytest.raises(RuntimeError, match="Native library missing"):
         app.main()
+
+
+def test_only_python_312_is_supported_and_ci_matches():
+    """Release, package metadata and test runners must agree on Python support."""
+    import tomllib
+
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    release = (ROOT / ".github/workflows/windows-release.yml").read_text(encoding="utf-8")
+    one_click = (ROOT / "one-click.bat").read_text(encoding="utf-8")
+    assert project["project"]["requires-python"] == ">=3.12,<3.13"
+    assert 'requires-python = ">=3.12, <3.13"' in lock
+    assert (ROOT / ".python-version").read_text(encoding="utf-8").strip() == "3.12"
+    assert 'python: ["3.12"]' in workflow
+    assert 'python: ["3.11"' not in workflow
+    assert "uv sync --locked --python 3.12" in one_click
+    assert "uv sync --locked --python 3.12" in release

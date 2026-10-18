@@ -207,7 +207,10 @@ class ModelService:
         if device not in model.devices or (device == "cuda" and model.task != "stt"):
             errors.append(f"Unsupported device: {device}")
         if state.state not in ("Installed", "Ready"):
-            errors.append(f"{model.label}: {state.state.lower()}. Open Settings → Models to install, import or repair. {state.detail}")
+            # Preserve the requested execution target in install errors too:
+            # an uninstalled CUDA model must not look like a CPU-only failure.
+            target = f" ({device.upper()})" if model.task == "stt" else ""
+            errors.append(f"{model.label}{target}: {state.state.lower()}. Open Settings → Models to install, import or repair. {state.detail}")
         elif not self.is_ready(model, device=device, compute_type=compute_type):
             profile = f"{device.upper()} / {compute_type or ('float16' if device == 'cuda' else model.inference_defaults.compute_type)}"
             errors.append(f"{model.label}: {profile} is not verified. Run its device-specific Test readiness in Settings → Models.")

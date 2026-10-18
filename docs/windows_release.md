@@ -32,7 +32,7 @@ Release ZIPs exclude `.projects/`, `.models/` and `.settings/`. The build script
 
 `scripts/build.py` checks the bundled catalogs, expected executable/resources and a packaged `--smoke-test`. The packaged smoke imports all mandatory production backends and verifies the FFmpeg executable path without requiring model weights. Dependency import checks **do not** establish real-model inference, native audio/video playback or CUDA compatibility.
 
-The desktop CI matrix covers Python 3.11 and 3.12 on Windows x64 and Linux x64 with `uv sync --locked`, runtime import checks and Qt offscreen tests. These are tests for the relevant commit, not a blanket release sign-off. See GitHub Actions for live results.
+The desktop CI matrix covers Python 3.12 on Windows x64 and Linux x64 with `uv sync --locked`, runtime import checks and Qt offscreen tests. These are tests for the relevant commit, not a blanket release sign-off. See GitHub Actions for live results.
 
 ## Required manual Windows release acceptance
 
