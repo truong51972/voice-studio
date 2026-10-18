@@ -115,6 +115,35 @@ def test_wheel_zoom_preserves_pointer_anchor_and_emits_view_changed(editor):
     assert views and views[-1] == (widget._zoom, widget._pan)
 
 
+def test_auto_follow_only_tracks_active_playback_outside_visible_window(editor):
+    timeline = editor
+    timeline.set_view(zoom=4, pan=0)
+    timeline.set_position_seconds(4.8, follow=True)
+    assert timeline._pan > 0
+    first_pan = timeline._pan
+    timeline.set_position_seconds(12., follow=False)
+    assert timeline._pan == first_pan
+
+    # Manual navigation should not be overwritten by incoming playhead ticks.
+    timeline.set_view(pan=.1, user=True)
+    timeline.set_position_seconds(16., follow=True)
+    assert timeline._pan == pytest.approx(.1)
+
+    timeline._follow_suspended_until = 0  # emulate grace interval expiring
+    timeline.set_position_seconds(16., follow=True)
+    assert timeline._pan > .1
+
+
+def test_manual_zoom_limit_matches_toolbar_and_scrub_marker(editor):
+    timeline = editor
+    timeline.set_view(zoom=128)
+    assert timeline._zoom == 128.
+    timeline.set_view(zoom=256)
+    assert timeline._zoom == 128.
+    timeline.set_position_seconds(1., follow=False)
+    assert timeline._position_seconds == 1.
+
+
 def test_middle_button_pans_without_seeking(editor):
     widget = editor
     widget.set_view(zoom=4, pan=.4)
