@@ -16,4 +16,7 @@ def test_product_distinguishes_merged_features_from_release_validation():
     assert "STT" in readme
     assert "Windows packaging" in readme
     assert "not yet been signed off" in readme
-    assert "Implementation PRs #15–#23 have all been merged" in readme
+    # README tracks subsequent merged desktop/model/UX PRs too. Do not require
+    # a historical, superseded sentence verbatim.
+    assert "Implementation PRs #13–#23" in readme
+    assert "release sign-off" in readme
