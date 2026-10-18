@@ -33,6 +33,7 @@ class EditorActionsMixin:
         self.recent_menu = self.menus["File"].addMenu("Recent projects")
         self.recent_menu.aboutToShow.connect(self._refresh_recent_menu)
         add("import", "Import media", "File", self.projects_panel._add, "Ctrl+I")
+        add("import_subtitles", "Import subtitles (.vtt/.srt)", "File", self.stt_panel._import_subtitles)
         add("save", "Save project", "File", self._save, "Ctrl+S")
         add("export", "Export project transcript", "File", self.projects_panel._export, "Ctrl+Shift+E")
         add("export_stt", "Export transcript", "File", self.stt_panel._export)
@@ -171,6 +172,7 @@ class EditorActionsMixin:
             "import": project and not working, "save": project,
             "export": project and any(self.session.project.latest_analysis(m.id, "stt")
                 for m in self.session.project.items), "export_stt": transcript,
+            "import_subtitles": transcript,
             "move_back": selection and not working, "move_forward": selection and not working,
             "trim": selection and not working,
             "split": transcript and len(rows) == 1, "merge": transcript and len(rows) == 2 and rows[1] == rows[0] + 1,
