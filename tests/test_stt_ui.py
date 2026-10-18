@@ -10,7 +10,8 @@ def test_stt_uses_existing_qt_media_player_and_inspector():
         from PySide6.QtMultimedia import QMediaPlayer
         assert len(window.findChildren(QMediaPlayer)) == 1
         assert isinstance(window.stt_panel, STTPanel)
-        assert window.inspector_tabs.tabText(3) == "STT"
+        assert window.inspector_tabs.tabText(0) == "Transcript"
+        assert window.inspector_tabs.currentWidget() is window.stt_panel
         assert window.stt_panel.vad.isChecked()
         assert window.stt_panel.model.count() == 4
         assert window.stt_panel.raw_result is None
