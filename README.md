@@ -20,7 +20,7 @@ A **local-first PySide6 desktop editor** for audio/video analysis, bootstrapped 
 - One serialized project worker queue, cancellation/retry, persistent failed/interrupted state, backed-up v1 migration and atomic saves.
 - Optional localhost Ollama **AI draft** summaries of a source or ordered project review snapshot, with source-specific citations; separate FFmpeg denoise utility.
 
-The [single-PR issue #26 refactor](https://github.com/truong51972/voice-studio/issues/26) retains PySide6 and leaves WebApp migration #25 deferred. See [implementation and QA evidence](docs/project_workspace_refactor.md); native Windows, real-model and real long-recording acceptance must pass before merge/release.
+The [portable editor refactor #26](https://github.com/truong51972/voice-studio/issues/26) was delivered through merged [PR #27](https://github.com/truong51972/voice-studio/pull/27). **PySide6 remains the product UI**; the [WebApp migration proposal #25](https://github.com/truong51972/voice-studio/issues/25) was closed as **not planned**. See [implementation and QA evidence](docs/project_workspace_refactor.md). Real Windows packaging, installed-model inference and long-recording acceptance remain **release gates**, tracked in [Epic #1](https://github.com/truong51972/voice-studio/issues/1), not unmerged feature work.
 
 **Voice matching is not anonymous-speaker diarization or identity verification.** Cosine similarity is not a probability.
 
@@ -78,7 +78,7 @@ The manually triggered Windows release-candidate workflow and `one-click.bat` bu
 
 Detailed workflows: [STT](docs/stt.md) · [Transcript](docs/transcript.md) · [Projects](docs/projects.md) · [Diarization](docs/diarization.md) · [Optional local AI drafts](docs/enhancements.md).
 
-**Implementation PRs #15–#23 have all been merged into `main`.** See [Epic #1](https://github.com/truong51972/voice-studio/issues/1) for remaining real-device, long-recording and model benchmarks.
+**Implementation PRs #13–#23, #27, #29, #30 and #32 have been merged into `main`.** [PR #29](https://github.com/truong51972/voice-studio/pull/29) delivered the dependency/model/menu refactor from [#28](https://github.com/truong51972/voice-studio/issues/28), [PR #30](https://github.com/truong51972/voice-studio/pull/30) improved the model manager and CUDA STT, and [PR #32](https://github.com/truong51972/voice-studio/pull/32) completed subtitle/progress/timeline work from [#31](https://github.com/truong51972/voice-studio/issues/31). **Merging implementation is not release sign-off.** See [Epic #1](https://github.com/truong51972/voice-studio/issues/1) and [quality gates](docs/quality.md) for outstanding physical-device and real-audio checks.
 
 ## Provenance
 
