@@ -54,10 +54,10 @@ def _stamp(seconds: float, *, srt: bool = False) -> str:
     return f"{hours:02}:{minutes:02}:{secs:02}{',' if srt else '.'}{ms:03}"
 
 
-def serialize_subtitles(cues, kind: str = "vtt") -> str:
+def serialize_subtitles(cues, kind: str = "vtt", *, include_empty: bool = False) -> str:
     if kind not in ("vtt", "srt"):
         raise ValueError("Use WebVTT (.vtt) or SubRip (.srt)")
-    ordered = sorted((c for c in cues if c.text.strip()), key=lambda c: (c.start, c.end))
+    ordered = sorted((c for c in cues if include_empty or c.text.strip()), key=lambda c: (c.start, c.end))
     blocks = []
     for index, cue in enumerate(ordered, start=1):
         if not isfinite(cue.start) or not isfinite(cue.end) or cue.start < 0 or cue.end <= cue.start:
