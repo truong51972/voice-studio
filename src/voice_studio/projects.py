@@ -14,6 +14,7 @@ from pathlib import Path
 from .domain.timeline import TimelineClip, TimelineMap
 from .domain.speakers import AnalysisRecord, ProjectSpeaker, ReferenceRegion, has_overlapping_voices
 from .transcript import TranscriptDocument, TranscriptEntry, export_text
+from .subtitle_formats import parse_subtitles, serialize_subtitles
 from .workspace import projects_directory
 
 VERSION = 2
@@ -601,6 +602,11 @@ class ProjectStore:
             if not source.is_file():
                 raise FileNotFoundError(source)
             document = TranscriptDocument(json.loads(source.read_text(encoding="utf-8")))
+        # Reviewed cue timing/text is stored in a standard WebVTT track. Legacy
+        # JSON-only projects are transparently read until their next save.
+        track = self._review_path(item).with_suffix(".vtt")
+        if track.is_file():
+            document.load_subtitle_cues(parse_subtitles(track.read_text(encoding="utf-8"), "vtt"))
         known = {s.id for s in self.speakers}
         for entry in list(document.edited):
             if entry.speaker_id in known:
@@ -628,12 +634,17 @@ class ProjectStore:
             raise ValueError("Cannot save review without completed STT")
         else:
             path = self._review_path(item)
+        # WebVTT is the editable source-of-truth for reviewed cue timing and
+        # text; the JSON companion retains inference lineage and correction
+        # metadata, not an independent subtitle playback format.
+        _atomic_write(path.with_suffix(".vtt"),
+                      serialize_subtitles(document.subtitle_cues(), include_empty=True).encode("utf-8"))
         _atomic_write(path, document.serialize())
 
     def combined_export(self, kind: str = "md") -> str:
-        if kind not in ("md", "txt", "srt", "json"):
-            raise ValueError("Choose Markdown, TXT, SRT or JSON")
-        if kind in ("srt", "json"):
+        if kind not in ("md", "txt", "srt", "vtt", "json"):
+            raise ValueError("Choose WebVTT, Markdown, TXT, SRT or JSON")
+        if kind in ("srt", "vtt", "json"):
             mapping = self.timeline()
             payload = {"project_id": self.id, "name": self.name, "scope": "selected_timeline",
                        "timebase": "timeline_start: project seconds; segment/word times: source seconds", "clips": []}
@@ -653,7 +664,7 @@ class ProjectStore:
                 combined.edited.extend(replace(s, id=clip.id + '-' + s.id,
                     start=mapping.source_to_project(clip.id, s.start), end=mapping.source_to_project(clip.id, s.end),
                     text=f'[{Path(item.source).name}] {s.text}') for s in entries if s.text.strip())
-            return json.dumps(payload, ensure_ascii=False, indent=2) if kind == "json" else export_text(combined, "srt")
+            return json.dumps(payload, ensure_ascii=False, indent=2) if kind == "json" else export_text(combined, kind)
         sections = ["# Combined transcript\n"] if kind == "md" else []
         for index, clip in enumerate(self.clips, start=1):
             item = self.get(clip.media_id)
