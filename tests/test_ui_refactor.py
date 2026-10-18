@@ -44,6 +44,25 @@ def test_dialog_titles_omit_parent_menu_breadcrumbs(monkeypatch):
         app.processEvents()
 
 
+def test_compact_transcription_options_and_zoom_limit(monkeypatch):
+    app = create_application([])
+    window = build_app()
+    try:
+        panel = window.stt_panel
+        assert panel.options_toggle.text() == "Options ▸"
+        assert panel.transcription_settings.isHidden()
+        panel.options_toggle.setChecked(True)
+        assert not panel.transcription_settings.isHidden()
+        panel.options_toggle.setChecked(False)
+        assert panel.transcription_settings.isHidden()
+        assert window.zoom.maximum() == 128
+        assert panel.import_button.text() == "Import…"
+        assert panel.export_scope.isHidden()
+    finally:
+        window.close()
+        app.processEvents()
+
+
 def test_source_sidebar_is_compact_and_stt_actions_move_to_context_menu():
     app = create_application([])
     window = build_app()
