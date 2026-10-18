@@ -198,6 +198,7 @@ class EditorActionsMixin:
             "analysis": True,
         }
         self.stt_panel.export_button.setEnabled(bool(transcript or enabled["export"]))
+        self.cancel_button.setVisible(working)
         for key, value in enabled.items():
             self.actions[key].setEnabled(bool(value))
         for key, widget in (("sources", self.projects_panel),
