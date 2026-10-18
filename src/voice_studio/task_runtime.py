@@ -105,7 +105,7 @@ def _child_entry(request: TaskRequest, artifact: str) -> None:
             payload = transcribe(
                 str(request.inputs["target_path"]),
                 STTOptions(**request.inputs["options"]),
-                progress=progress,
+                progress=progress, checkpoint_path=request.inputs.get("checkpoint_path"),
             )
         else:
             from .service import LocatorService
