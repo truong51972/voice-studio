@@ -26,7 +26,7 @@ The [single-PR issue #26 refactor](https://github.com/truong51972/voice-studio/i
 
 ## Run locally
 
-Requires Python 3.11–3.12, [uv](https://docs.astral.sh/uv/) and a compatible Qt desktop. Some Linux distributions need multimedia packages.
+Requires Python 3.12, [uv](https://docs.astral.sh/uv/) and a compatible Qt desktop. Some Linux distributions need multimedia packages.
 
 ```bash
 uv sync --locked
@@ -74,7 +74,7 @@ configs/models/    versioned JSON model metadata (packaged with app)
 
 ## Scope and release caveats
 
-The manually triggered Windows release-candidate workflow and `one-click.bat` bundle STT and Auto Detect runtimes by default. Install a complete local Community-1 model separately and choose its folder in Speakers. **Windows packaging, optional CUDA runtime and native media/model tests have not yet been signed off**. CI runs model-free Windows/Linux Qt offscreen tests on Python 3.11/3.12; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
+The manually triggered Windows release-candidate workflow and `one-click.bat` bundle STT and Auto Detect runtimes by default. Install a complete local Community-1 model separately and choose its folder in Speakers. **Windows packaging, optional CUDA runtime and native media/model tests have not yet been signed off**. CI runs model-free Windows/Linux Qt offscreen tests on Python 3.12; use real recordings and installed models for acceptance. See [Windows release guide](docs/windows_release.md) and [quality gates](docs/quality.md).
 
 Detailed workflows: [STT](docs/stt.md) · [Transcript](docs/transcript.md) · [Projects](docs/projects.md) · [Diarization](docs/diarization.md) · [Optional local AI drafts](docs/enhancements.md).
 
