@@ -172,8 +172,13 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         mapping = self.timeline._project_map
         if not project or not item or not document or not mapping:
             return
-        annotations = [a for a in self.timeline._annotations
+        old_annotations = self.timeline._annotations
+        insertion = next((i for i, a in enumerate(old_annotations)
+                          if a.get("kind") == "transcript" and a.get("media_id") == item.id),
+                         len(old_annotations))
+        annotations = [a for a in old_annotations
                        if not (a.get("kind") == "transcript" and a.get("media_id") == item.id)]
+        refreshed = []
         for clip in project.clips:
             if clip.media_id != item.id:
                 continue
@@ -184,12 +189,16 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 end = min(entry.end, clip_end)
                 if end <= start:
                     continue
-                annotations.append({
+                refreshed.append({
                     "start": map_time(clip, clip_start, start, item.duration, to_source=False),
                     "end": map_time(clip, clip_start, end, item.duration, to_source=False),
                     "lane": "Transcript", "text": entry.text, "color": "#8fa4bd",
                     "overlap": False, "kind": "transcript", "media_id": item.id,
                 })
+        # Keep the Transcript lane at its original visual position while
+        # replacing only its cue annotations, instead of making it jump below
+        # Speaker/Match lanes after every text edit.
+        annotations[insertion:insertion] = refreshed
         self.timeline.update_annotations(annotations)
 
     def _render_timeline(self):
