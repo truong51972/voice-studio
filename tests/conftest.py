@@ -1,4 +1,9 @@
+import faulthandler
 import pytest
+
+# Native Qt/FFmpeg shutdown failures can occur *after* pytest has printed
+# "all passed"; keep the C-level traceback so a non-zero exit is diagnosable.
+faulthandler.enable(all_threads=True)
 
 
 @pytest.fixture(autouse=True)
