@@ -16,6 +16,7 @@ from ..task_runtime import TaskManager, TaskRequest
 class ProjectSession(QObject):
     changed = Signal()
     resultReady = Signal(str, str, object)
+    partialReady = Signal(str, object)
     statusChanged = Signal(str)
     progressChanged = Signal(object)
 
@@ -68,6 +69,44 @@ class ProjectSession(QObject):
             raise ValueError("Wait for/cancel project jobs before relinking")
         job = self._submit("import", {"paths": [path]})
         self.jobs[job] = "relink:" + media_id
+
+    @staticmethod
+    def _stt_checkpoint_path(project, item, options: dict) -> Path:
+        # Include source fingerprint and the full model revision/options. A
+        # changed recording, model snapshot or inference setting never resumes
+        # from the previous run's transcript.
+        key = hashlib.sha256(json.dumps({
+            "source": item.source, "fingerprint": item.fingerprint,
+            "options": options,
+        }, sort_keys=True).encode("utf-8")).hexdigest()
+        return project.directory / "cache" / "stt-checkpoints" / f"{key}.json"
+
+    def partial_transcript(self, record: AnalysisRecord) -> dict | None:
+        if self.project is None or record.task != "stt":
+            return None
+        item = self.project.get(record.media_id)
+        path = self._stt_checkpoint_path(self.project, item, record.settings)
+        try:
+            snapshot = json.loads(path.read_text(encoding="utf-8"))
+            signature = {"source": item.source, "options": {
+                k: v for k, v in record.settings.items() if k != "model_revision"
+            }}
+            if snapshot.get("schema") != 1 or snapshot.get("signature") != signature:
+                return None
+            segments = snapshot.get("segments")
+            end = float(snapshot.get("processed_seconds", 0))
+            if not isinstance(segments, list) or not segments or not 0 < end <= item.duration + 1.:
+                return None
+            return {
+                "kind": "stt", "schema": 1, "source": item.source,
+                "model_id": record.settings["model_id"],
+                "duration": end, "segments": segments,
+                "language": snapshot.get("language"), "partial": True,
+                "warning_count": snapshot.get("warning_count", 0),
+                "warnings": snapshot.get("warnings", []),
+            }
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
 
     def options_revision(self, task: str, options: dict) -> dict:
         """Small model file stamps invalidate cached runs; workers verify model bytes."""
@@ -142,6 +181,7 @@ class ProjectSession(QObject):
                   "media_kind": item.kind, "options": options, **extra}
         if task == "stt":
             inputs["source_duration"] = item.duration
+            inputs["checkpoint_path"] = str(self._stt_checkpoint_path(project, item, options))
         if task in ("locator", "reconcile"):
             inputs.update(media=[asdict(m) for m in project.items],
                           references=[asdict(r) for r in project.references], speakers=[asdict(s) for s in project.speakers])
@@ -251,6 +291,11 @@ class ProjectSession(QObject):
                     if context.task in ('stt', 'diarization'):
                         self.prepare_result(context.task, context.media_id)
                     self.project.finish_analysis(context, payload)
+                    if context.task == "stt":
+                        # Delete only after the finalized result has been saved.
+                        path = self._stt_checkpoint_path(
+                            self.project, self.project.get(context.media_id), context.settings)
+                        path.unlink(missing_ok=True)
                     self.resultReady.emit(context.task, context.media_id, payload)
                 action = context.task if isinstance(context, AnalysisRecord) else context.split(':', 1)[0]
                 self.statusChanged.emit('Reused cached inference' if action == 'cached' else f'Completed {action}')
@@ -281,6 +326,10 @@ class ProjectSession(QObject):
                         region.state, region.error = "failed", str(exc)
                     self.project.save()
                 self.statusChanged.emit(str(exc))
+                if isinstance(context, AnalysisRecord) and context.task == "stt":
+                    partial = self.partial_transcript(context)
+                    if partial is not None:
+                        self.partialReady.emit(context.media_id, partial)
             finally:
                 if isinstance(context, AnalysisRecord) and context.task == "stt":
                     index, count = self._stt_batches.pop(job_id, (1, 1))
