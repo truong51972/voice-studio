@@ -63,8 +63,10 @@ intentionally not carried across the process boundary.
 
 States are queued/running/completed/failed/cancelled. \`cancel()\` terminates the
 subprocess and cleans temporary artifacts. One GPU slot is always reserved;
-CPU concurrency is configurable. The runner does not claim native CUDA support,
-inference progress percentage, persistent resume or a remote execution API.
+CPU concurrency is configurable. The general runner does not claim native CUDA support, generic inference
+progress percentage or a remote execution API. STT has its own per-chunk
+progress and project-local checkpoint/resume flow; this is not a generic runner
+resume facility.
 
 Qt closes the manager on completion/cancellation. The GUI supports Cancel
 while the task is running. For real long recordings progress currently indicates
