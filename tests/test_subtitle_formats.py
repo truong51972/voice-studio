@@ -80,7 +80,7 @@ def test_review_vtt_is_portable_source_legacy_json_is_preserved(tmp_path):
     assert path.is_file()
     text = path.read_text(encoding="utf-8")
     assert "WEBVTT" in text and "Đã sửa" in text
-    assert json.loads(project._review_path(item).read_text())["raw"]["segments"][0]["text"] == "unreviewed"
+    assert json.loads(project._review_path(item).read_text(encoding="utf-8"))["raw"]["segments"][0]["text"] == "unreviewed"
 
     # An external subtitle editor modifies the standard .vtt; reopened review
     # must take cue text and timing from the file rather than stale JSON.
