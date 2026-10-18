@@ -71,7 +71,7 @@ class EditorLayoutMixin:
         self.preview_status = QLabel('Import sources to begin')
         self.preview_status.setWordWrap(True)
         preview_layout.addWidget(self.preview_status)
-         self.video_widget = PreviewVideoWidget()
+        self.video_widget = PreviewVideoWidget()
         self._player.setVideoOutput(self.video_widget)
         preview_layout.addWidget(self.video_widget, 1)
         transport = QHBoxLayout()
