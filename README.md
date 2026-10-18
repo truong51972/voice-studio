@@ -8,7 +8,7 @@ A **local-first PySide6 desktop editor** for audio/video analysis, bootstrapped 
 
 - Project-first New/Open/Recent with portable `.projects/` storage beside the app.
 - Multi-select audio/video import, external source links, fingerprint checks and relinking.
-- Resizable dark/cyan source library, one preview/player, inspector and ordered source/speaker/STT timeline.
+- Resizable dark/cyan source library, one preview/player, **two-tab Transcript / Speakers inspector**, and ordered source/speaker/STT timeline. Less-frequent engineering tools are accessible on demand from the menus.
 - Sequential playback/seek, basic trim and move controls, dual source/project clocks, cached waveform peaks, zoom/pan and range selection.
 - **Auto Detect Speakers** by default using optional explicitly installed local Community-1; original overlap and separate exclusive turns remain available.
 - Optional **manual references from source intervals**: type or drag a range, preview, name/choose a project speaker and embed. Multiple regions per speaker; no reference upload or microphone enrollment.
@@ -50,8 +50,8 @@ Model management: [docs/model_manager.md](docs/model_manager.md). **Settings →
 1. **New/Open/Recent Project**, then **Import media** (multiple recordings). Sources populate the library and ordered timeline without being copied.
 2. Select a source, play/seek across clip boundaries, move/trim clips, zoom/pan or drag/type a source range. Source and project clocks are separate.
 3. Import a complete local Community-1 folder under **Settings → Models** after accepting the upstream gated terms, test readiness, then select **Process → Auto Detect Speakers**. Toolbar scope chooses the current source or whole project.
-5. Under **STT**, select an installed model/language and **Transcribe**. Review text/speakers, split/merge and export the source/selection; **Export all** follows project clip order and trims.
-6. **Summary** generates explicit source-cited localhost Ollama drafts. **Raw AI** retains immutable inference separately from corrections. **Cancel jobs** stops the shared queue; rerun the task controls or retry a selected reference after fixing an error.
+5. Under **Transcript** (the default right-hand inspector), select an installed model/language and **Transcribe**. Review text/speakers, split/merge and export WebVTT (.vtt), SRT or other formats for the source/selection; whole-project export follows clip order and trims.
+6. The right inspector normally shows only **Transcript** and **Speakers**. Open optional **Process → Summarize…** for source-cited localhost Ollama drafts, or **View → Advanced tools** for Analysis, Segments, Project details, or Raw AI results. Settings → Inference defaults exposes the analysis controls. An advanced panel is temporary and can be closed to return to Transcript. **Cancel jobs** stops the shared queue; rerun the task controls or retry a selected reference after fixing an error.
 7. **Save** and reopen: clips, source links, speaker mappings/references, raw results, review revisions and interrupted states persist.
 
 Source checkouts use `<repo>/.projects/` independently of cwd; onedir builds use `<exe-directory>/.projects/`. The portable folder must be writable. Back up the entire `.projects/` folder and external media before upgrades/moves: moving only the app does not move the recordings. Portable model assets and preferences default to sibling `.models/` and `.settings/` folders. Linked legacy models stay at their original locations and are never deleted by unlink. See [Projects](docs/projects.md) for backup and migration.
