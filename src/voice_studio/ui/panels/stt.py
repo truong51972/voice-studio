@@ -41,6 +41,9 @@ class STTPanel(QWidget):
         self.before_export = lambda: None
         layout = QVBoxLayout(self)
         settings = QFormLayout()
+        advanced = QFormLayout()
+        self.transcription_settings = QWidget(self)
+        self.transcription_settings.setLayout(advanced)
         self.model = QComboBox()
         for descriptor in descriptors("stt"):
             self.model.addItem(descriptor.label, descriptor.id)
@@ -51,26 +54,26 @@ class STTPanel(QWidget):
         self.device.addItem("Auto · GPU if verified", "auto")
         self.device.addItem("NVIDIA CUDA", "cuda")
         self.device.addItem("CPU", "cpu")
-        settings.addRow("Device", self.device)
+        advanced.addRow("Device", self.device)
         self.gpu_precision = QComboBox()
         self.gpu_precision.addItem("FP16 · fast", "float16")
         self.gpu_precision.addItem("INT8 + FP16 · lower VRAM", "int8_float16")
-        settings.addRow("GPU precision", self.gpu_precision)
+        advanced.addRow("GPU precision", self.gpu_precision)
         self.device.currentIndexChanged.connect(
             lambda _index: self.gpu_precision.setEnabled(self.device.currentData() != "cpu"))
         self.models_button = QPushButton("Manage models…")
         self.models_button.clicked.connect(lambda: self.modelsRequested.emit(str(self.model.currentData())))
-        settings.addRow(self.models_button)
+        advanced.addRow(self.models_button)
         self.language = QComboBox()
         for label, value in (("Auto detect", "auto"), ("Vietnamese", "vi"), ("English", "en")):
             self.language.addItem(label, value)
-        settings.addRow("Language", self.language)
+        advanced.addRow("Language", self.language)
         self.vad = QCheckBox("Speech filtering (VAD)")
         self.vad.setChecked(True)
         self.words = QCheckBox("Word timestamps")
         self.export_selection = QCheckBox("Export selected source range only", self)
-        settings.addRow(self.vad)
-        settings.addRow(self.words)
+        advanced.addRow(self.vad)
+        advanced.addRow(self.words)
         # Kept as a compatibility flag for existing integrations; the visible
         # scope chooser by the reviewed result is the authoritative UX.
         self.export_selection.hide()
@@ -84,7 +87,18 @@ class STTPanel(QWidget):
         self.cancel_button.clicked.connect(self.cancel)
         commands.addWidget(self.run_button)
         commands.addWidget(self.cancel_button)
+        self.options_toggle = QPushButton("Options ▸")
+        self.options_toggle.setCheckable(True)
+        self.options_toggle.setToolTip("Language, device, GPU precision, VAD and word timestamps")
+        self.options_toggle.toggled.connect(
+            lambda expanded: (
+                self.transcription_settings.setVisible(expanded),
+                self.options_toggle.setText("Options ▾" if expanded else "Options ▸"),
+            ))
+        commands.addWidget(self.options_toggle)
         layout.addLayout(commands)
+        layout.addWidget(self.transcription_settings)
+        self.transcription_settings.hide()
         self.status = QLabel("Select media and install a model in Model Manager.")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
@@ -96,13 +110,16 @@ class STTPanel(QWidget):
         self.export_scope.addItem("Selected source range", "range")
         self.export_scope.addItem("Whole project · clip order", "project")
         self.export_scope.setToolTip("Current source uses source time; whole project follows clip trims/order.")
-        reviewed_header.addWidget(self.export_scope)
-        self.import_button = QPushButton("Import .vtt/.srt…")
+        # Scope is chosen when exporting rather than consuming the narrow
+        # right-hand inspector toolbar on every frame.
+        self.export_scope.setParent(self)
+        self.export_scope.hide()
+        self.import_button = QPushButton("Import…")
         self.import_button.setToolTip("Load standard subtitles as a new reviewed cue track; raw STT is preserved.")
         self.import_button.clicked.connect(self._import_subtitles)
         reviewed_header.addWidget(self.import_button)
         self.export_button = QPushButton("Export transcript…")
-        self.export_button.clicked.connect(self._export)
+        self.export_button.clicked.connect(self._choose_export)
         self.export_button.setEnabled(False)
         reviewed_header.addWidget(self.export_button)
         self.open_folder_button = QPushButton("Open output folder")
@@ -405,6 +422,17 @@ class STTPanel(QWidget):
     def _open_export_folder(self) -> None:
         if self.last_export_path is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.last_export_path.parent)))
+
+    def _choose_export(self) -> None:
+        labels = ["Current source", "Selected source range", "Whole project · clip order"]
+        current = max(0, self.export_scope.currentIndex())
+        selected, ok = QInputDialog.getItem(
+            self, "Export transcript", "Scope", labels, current, editable=False)
+        if not ok:
+            return
+        index = labels.index(selected)
+        self.export_scope.setCurrentIndex(index)
+        self._export(scope=str(self.export_scope.currentData()))
 
     def _export(self, scope: str | None = None) -> None:
         # The same command is shared by the visible result action, File menu,
