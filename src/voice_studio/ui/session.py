@@ -178,7 +178,7 @@ class ProjectSession(QObject):
         source = self.project.get(record.media_id)
         index, count = self._stt_batches.get(job, (1, 1))
         self.progressChanged.emit({
-            "state": snapshot.state, "stage": snapshot.stage,
+            "state": snapshot.state, "stage": snapshot.stage, "error": snapshot.error,
             "filename": Path(source.source).name, "model": record.settings.get("model_id", ""),
             "device": record.settings.get("device", "cpu"),
             "processed_seconds": snapshot.processed_seconds,
@@ -287,7 +287,7 @@ class ProjectSession(QObject):
                     index, count = self._stt_batches.pop(job_id, (1, 1))
                     source = self.project.get(context.media_id)
                     self.progressChanged.emit({
-                        "state": snapshot.state, "stage": snapshot.stage,
+                        "state": snapshot.state, "stage": snapshot.stage, "error": snapshot.error,
                         "filename": Path(source.source).name, "model": context.settings.get("model_id", ""),
                         "device": context.settings.get("device", "cpu"),
                         "processed_seconds": snapshot.processed_seconds,
