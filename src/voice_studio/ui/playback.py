@@ -34,10 +34,17 @@ class SequencePlayback(QObject):
     def _clip(self):
         return next((c for c in self.project.clips if c.id == self.clip_id), None) if self.project else None
 
-    def seek_project(self, seconds: float, *, play: bool = False):
+    def seek_project(self, seconds: float, *, play: bool | None = None):
+        """Seek without changing play/pause unless explicitly requested.
+
+        In particular dragging the timeline during playback must not silently
+        pause the media. A seek after a selection preview ends that preview.
+        """
+        if play is None:
+            play = self.player.playbackState() == QMediaPlayer.PlaybackState.PlayingState or self._resume
         clip, source = self.project.timeline().project_to_source(seconds)
         self._preview_end = None
-        self._load(clip.id, source, play)
+        self._load(clip.id, source, bool(play))
 
     def seek_source(self, seconds: float):
         if self._clip() is None:
