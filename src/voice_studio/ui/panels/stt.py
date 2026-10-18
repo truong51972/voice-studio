@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+from time import monotonic
 
-from PySide6.QtCore import Qt, QTimer, Signal, QUrl
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemDelegate, QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout,
@@ -16,6 +17,7 @@ from ...model_registry import descriptors, get_model, preflight
 from ...task_runtime import TaskManager, TaskRequest
 from ...transcript import TranscriptDocument, export_text
 from ...subtitle_formats import parse_subtitles
+from ...subtitle_index import SubtitleIndex
 from ..timecode import _fmt_time
 
 
@@ -39,6 +41,9 @@ class STTPanel(QWidget):
         self.export_range = None
         self.last_export_path: Path | None = None
         self.before_export = lambda: None
+        self._cue_index = SubtitleIndex()
+        self._cue_rows = {}
+        self._user_navigation_until = 0.
         layout = QVBoxLayout(self)
         settings = QFormLayout()
         advanced = QFormLayout()
@@ -158,6 +163,8 @@ class STTPanel(QWidget):
         self.table.itemChanged.connect(self._edit_text)
         self.table.itemDoubleClicked.connect(lambda _item: self.editingStarted.emit())
         self.table.cellClicked.connect(self._seek)
+        self.table.viewport().installEventFilter(self)
+        self.table.verticalScrollBar().sliderPressed.connect(self._mark_user_navigation)
         layout.addWidget(self.table, 1)
         self.refresh_models()
         self._timer = QTimer(self)
@@ -282,6 +289,8 @@ class STTPanel(QWidget):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(i, col, item)
         self.table.blockSignals(False)
+        self._cue_index.set_entries(self.document.edited)
+        self._cue_rows = {entry.id: index for index, entry in enumerate(self.document.edited)}
         self._filter(self.search.text())
 
     def _filter(self, text: str) -> None:
@@ -298,6 +307,7 @@ class STTPanel(QWidget):
         row = item.row()
         if row < len(self.document.edited):
             self.document.replace(self.document.edited[row].id, text=item.text())
+            self._cue_index.set_entries(self.document.edited)
             self.documentChanged.emit()
 
     def _selected_rows(self) -> list[int]:
@@ -518,16 +528,28 @@ class STTPanel(QWidget):
         if self.document is not None and row < len(self.document.edited):
             self.seekRequested.emit(float(self.document.edited[row].start))
 
+    def _mark_user_navigation(self) -> None:
+        # Playback should not steal focus/selection while a user reads or edits.
+        self._user_navigation_until = monotonic() + 5.
+
+    def eventFilter(self, watched, event):  # noqa: N802
+        if watched is self.table.viewport() and event.type() in (
+                QEvent.Type.Wheel, QEvent.Type.MouseButtonPress):
+            self._mark_user_navigation()
+        return super().eventFilter(watched, event)
+
     def set_playhead(self, seconds: float) -> None:
-        if self.document is None:
+        if self.document is None or self.table.state() == QAbstractItemView.State.EditingState:
             return
-        if self.table.state() == QAbstractItemView.State.EditingState:
+        if monotonic() < self._user_navigation_until:
             return
-        for i, segment in enumerate(self.document.edited):
-            if segment.start <= seconds < segment.end and not self.table.isRowHidden(i):
-                if self.table.currentRow() != i:
-                    self.table.selectRow(i)
-                break
+        cue = self._cue_index.at(seconds)
+        row = self._cue_rows.get(cue.id) if cue else None
+        if row is not None and not self.table.isRowHidden(row):
+            if self.table.currentRow() != row:
+                self.table.selectRow(row)
+                self.table.scrollToItem(self.table.item(row, 3),
+                                        QAbstractItemView.ScrollHint.PositionAtCenter)
 
     def commit_edit(self):
         if self.table.state() == QAbstractItemView.State.EditingState:
