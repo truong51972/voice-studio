@@ -18,3 +18,27 @@ def test_stt_uses_existing_qt_media_player_and_inspector():
     finally:
         window.close()
         app.processEvents()
+
+
+def test_large_transcript_follows_current_cue_but_respects_manual_navigation():
+    app = create_application([])
+    window = build_app()
+    try:
+        panel = window.stt_panel
+        panel._show({
+            "kind": "stt", "source": "meeting.m4a", "duration": 3000.,
+            "segments": [{"id": f"cue-{i}", "start": i * 2., "end": i * 2. + 1.5,
+                          "text": f"Sentence {i}"} for i in range(1200)],
+        })
+        assert panel._cue_rows["cue-1000"] == 1000
+        panel.set_playhead(2001.)
+        assert panel.table.currentRow() == 1000
+        panel._mark_user_navigation()
+        panel.set_playhead(1.)
+        assert panel.table.currentRow() == 1000
+        panel._user_navigation_until = 0
+        panel.set_playhead(1.)
+        assert panel.table.currentRow() == 0
+    finally:
+        window.close()
+        app.processEvents()
