@@ -24,7 +24,7 @@ class EditorActionsMixin:
             if shortcut:
                 action.setShortcut(QKeySequence(shortcut))
             action.triggered.connect(lambda _checked=False, fn=callback: self._invoke_action(fn))
-            self.menus[menu].addAction(action)
+            (self.menus[menu] if isinstance(menu, str) else menu).addAction(action)
             self.actions[key] = action
             return action
 
@@ -52,13 +52,23 @@ class EditorActionsMixin:
         add("detect", "Auto Detect Speakers", "Process", self._process_auto_detect)
         add("match", "Match manual references", "Process", self._process_match)
         add("compare", "Compare project speakers", "Process", self._compare)
-        add("summarize", "Summarize", "Process", self._run_summary)
+        # Optional AI summarization remains available, but is not a permanent
+        # navigation destination. The panel owns model settings and the Run button.
+        add("summarize", "Summarize…", "Process", lambda: self._open_inspector_tool("summary"))
         add("cancel", "Cancel jobs", "Process", self.session.cancel, "Escape")
 
         add("play", "Play / Pause", "View", self.playback.toggle, "Space")
         add("preview", "Preview selected range", "View", self._preview_selection)
         add("zoom_fit", "Fit timeline", "View", lambda: (self.zoom.setValue(1), self.pan.setValue(0)))
-        add("raw", "Raw AI results", "View", lambda: self.inspector_tabs.setCurrentWidget(self.raw_output.parentWidget()))
+        self.advanced_menu = self.menus["View"].addMenu("Advanced tools")
+        add("analysis", "Analysis / similarity", self.advanced_menu,
+            lambda: self._open_inspector_tool("analysis"))
+        add("segments_view", "Detection segments", self.advanced_menu,
+            lambda: self._open_inspector_tool("segments"))
+        add("project_details", "Project details", self.advanced_menu,
+            lambda: self._open_inspector_tool("project"))
+        add("raw", "Raw AI results", self.advanced_menu,
+            lambda: self._open_inspector_tool("raw"))
         subtitles = add("subtitles", "Show subtitles", "View", self._toggle_subtitles)
         subtitles.setCheckable(True)
         subtitles.setChecked(True)
@@ -72,7 +82,8 @@ class EditorActionsMixin:
             action.setChecked(True)
 
         add("models", "Models", "Settings", self._open_models)
-        add("defaults", "Inference defaults", "Settings", lambda: self.inspector_tabs.setCurrentIndex(1))
+        add("defaults", "Inference defaults", "Settings",
+            lambda: self._open_inspector_tool("analysis"))
         add("storage", "Model storage", "Settings", self._open_models)
 
         add("docs", "Documentation", "Help", self._show_documentation)
@@ -183,6 +194,8 @@ class EditorActionsMixin:
             "compare": project and not working, "summarize": transcript and not working,
             "cancel": working, "play": selection and not self._typing(),
             "preview": selection, "raw": project,
+            "segments_view": project, "project_details": project,
+            "analysis": True,
         }
         self.stt_panel.export_button.setEnabled(bool(transcript or enabled["export"]))
         for key, value in enabled.items():
