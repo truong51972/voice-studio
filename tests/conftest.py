@@ -26,7 +26,20 @@ def keep_qt_application_alive():
 
     app = create_application([])
     yield
+    # QtMultimedia owns native FFmpeg objects; destroy their QWidget parents
+    # while the Python/Qt runtime is still live rather than at interpreter exit.
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+    import shiboken6
+
+    for widget in QApplication.topLevelWidgets():
+        widget.close()
+        widget.deleteLater()
     app.processEvents()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     gc.collect()
     app.processEvents()
     app.quit()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    shiboken6.delete(app)
+    gc.collect()
