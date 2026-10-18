@@ -140,12 +140,34 @@ class ProjectsPanel(QWidget):
         if not self.project:
             return
         for row, item in enumerate(self.project.items):
-            latest = next((r for r in reversed(self.project.analyses) if r.media_id == item.id), None)
-            state = item.status if item.status in ('missing', 'changed') else f'{latest.task}: {latest.state}' if latest else item.status
-            values = (Path(item.source).name, state, f"{item.duration:.1f}s" if item.duration else "Probe pending")
+            records = [r for r in self.project.analyses if r.media_id == item.id]
+            latest_by_task = {record.task: record for record in records}
+            latest = records[-1] if records else None
+            if item.status in ("missing", "changed"):
+                state = item.status.capitalize()
+            else:
+                labels = []
+                for task, label in (("stt", "STT"), ("diarization", "Speakers"),
+                                    ("locator", "Match")):
+                    record = latest_by_task.get(task)
+                    if record and record.state == "completed":
+                        labels.append(label + " ✓")
+                if latest and latest.state in ("running", "pending", "queued", "failed"):
+                    labels.append(f"{latest.task}: {latest.state}")
+                state = " · ".join(labels) or (item.status.capitalize() if item.status else "Ready")
+            duration = None
+            if item.duration is not None and item.duration > 0:
+                seconds = round(item.duration)
+                h, remainder = divmod(seconds, 3600)
+                m, sec = divmod(remainder, 60)
+                duration = f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+            values = (Path(item.source).name, state, duration or "Probing…")
+            detail = " · ".join(f"{record.task}: {record.state}" for record in records)
+            hint = "\n".join(filter(None, [str(item.source), detail, item.error,
+                                            latest.error if latest else None]))
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
-                cell.setToolTip(item.error or (latest.error if latest else "") or item.source)
+                cell.setToolTip(hint)
                 self.table.setItem(row, column, cell)
             if item.id == selected:
                 self.table.selectRow(row)
