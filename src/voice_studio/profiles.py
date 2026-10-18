@@ -52,4 +52,4 @@ def get_inference_profile(profile_key: str | None = None) -> InferenceProfile:
         return INFERENCE_PROFILES[key]
     except KeyError as exc:
         choices = ", ".join(INFERENCE_PROFILES)
-        raise ValueError(f"Inference profile không hợp lệ: {profile_key!r}. Chọn một trong: {choices}.") from exc
+        raise ValueError(f"Invalid inference profile: {profile_key!r}. Choose one of: {choices}.") from exc
