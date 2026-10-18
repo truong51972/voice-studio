@@ -76,6 +76,22 @@ def test_seek_and_sequential_play_use_source_offsets_at_all_boundaries(tmp_path)
     assert player.position() == 2000
 
 
+def test_scrub_does_not_change_play_pause_across_clip_boundaries(tmp_path):
+    project, player, playback = sequence(tmp_path)
+    playback.seek_project(0., play=True)
+    player.loaded()
+    assert player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+    playback.seek_project(6.)  # crossing source boundary while playing
+    player.loaded()
+    assert player.position() == 5000
+    assert player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+    playback.pause()
+    playback.seek_project(1.)
+    player.loaded()
+    assert player.position() == 3000
+    assert player.playbackState() == QMediaPlayer.PlaybackState.PausedState
+
+
 def test_preview_stops_at_selection_and_does_not_advance_project(tmp_path):
     project, player, playback = sequence(tmp_path)
     playback.preview(project.clips[0].id, 10., 12.)  # outside trim but inside original source
