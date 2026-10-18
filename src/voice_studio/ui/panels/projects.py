@@ -104,12 +104,16 @@ class ProjectsPanel(QWidget):
             self.active_id = self._active_document = None
         except (OSError, ValueError) as exc:
             self.status.setText(str(exc))
+            if hasattr(self.window(), "picker_status"):
+                self.window().picker_status.setText(str(exc))
 
     def _recent(self):
         self._open()
 
     def _open_folder(self, folder):
         try:
+            if self.session.jobs:
+                raise ValueError("Finish or cancel project jobs before switching projects")
             project = ProjectStore(Path(folder), check_sources=False)
             self.session.open(project)
             self.active_id = self._active_document = None
