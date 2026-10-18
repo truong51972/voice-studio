@@ -101,7 +101,7 @@ class STTProgressStrip(QWidget):
         else:
             detail = f"Elapsed {elapsed}"
         if state == "failed":
-            detail += " · See job error"
+            detail += " · " + (str(info.get("error") or "Worker failed"))
         elif state == "cancelled":
             detail += " · Cancelled"
         elif state == "queued":
