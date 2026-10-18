@@ -56,6 +56,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self.diarization_panel.modelsRequested.connect(self._open_models)
         self.session.changed.connect(self._refresh_project)
         self.session.resultReady.connect(self._result_ready)
+        self.session.partialReady.connect(self._partial_stt_ready)
         self.session.statusChanged.connect(self._status)
         self.session.progressChanged.connect(self.stt_progress.show_progress)
         self.stt_panel.before_export = self._prepare_transcript_export
@@ -317,6 +318,16 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self.projects_panel._active_document = document
             self.projects_panel._active_review_key = item.settings_key
             self.stt_panel.load_document(document)
+        elif item.status != 'completed' and reload_review and self.stt_panel.document is None:
+            # Reopen saved partial cues for a failed/cancelled source without
+            # ever promoting them to a completed project analysis.
+            for record in reversed(project.analyses):
+                if (record.media_id == item.id and record.task == 'stt'
+                        and record.state in ('failed', 'cancelled')):
+                    partial = self.session.partial_transcript(record)
+                    if partial is not None:
+                        self._partial_stt_ready(item.id, partial)
+                        break
         self.video_widget.overlay.set_subtitles(
             self.stt_panel.document.edited if self.stt_panel.document else [],
             self.stt_panel.speaker_names,
@@ -482,6 +493,17 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 project.save()
             self._refresh_project()
         self._guard(run)
+
+    def _partial_stt_ready(self, media_id, payload):
+        item = self._current_item()
+        if item is None or item.id != media_id or self.stt_panel.document is not None:
+            return
+        self.stt_panel._show(payload)
+        self.stt_panel.status.setText(
+            f"Partial transcript saved ({len(payload['segments'])} cues). "
+            "Export current source now, or Transcribe again to resume.")
+        self.video_widget.overlay.set_subtitles(
+            self.stt_panel.document.edited, self.stt_panel.speaker_names)
 
     def _result_ready(self, task, media_id, payload):
         item = self._current_item()
