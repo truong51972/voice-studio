@@ -9,6 +9,8 @@ A **local-first PySide6 desktop editor** for audio/video analysis, bootstrapped 
 - Project-first New/Open/Recent with portable `.projects/` storage beside the app.
 - Multi-select audio/video import, external source links, fingerprint checks and relinking.
 - Resizable dark/cyan source library, one preview/player, **two-tab Transcript / Speakers inspector**, and ordered source/speaker/STT timeline. Less-frequent engineering tools are accessible on demand from the menus.
+- **Timeline:** click to seek, drag playhead/ruler to scrub, drag zoomed canvas or middle button to pan, Shift+drag to select an interval, wheel to zoom around the pointer. Active playback auto-follows until you manually navigate; zoom is consistent up to 128×.
+- **Fast review:** primary Transcribe action with collapsible Options; transcript export chooses source/selection/project scope on demand; source list summarizes completed STT/speaker matching and elapsed-style durations. Current subtitle cue scrolls into view unless you are manually navigating the transcript.
 - Sequential playback/seek, basic trim and move controls, dual source/project clocks, cached waveform peaks, zoom/pan and range selection.
 - **Auto Detect Speakers** by default using optional explicitly installed local Community-1; original overlap and separate exclusive turns remain available.
 - Optional **manual references from source intervals**: type or drag a range, preview, name/choose a project speaker and embed. Multiple regions per speaker; no reference upload or microphone enrollment.
