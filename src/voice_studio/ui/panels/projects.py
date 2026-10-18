@@ -3,7 +3,7 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInputDialog,
                                QHeaderView, QLabel, QMenu, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
@@ -13,16 +13,44 @@ from ...workspace import projects_directory
 from ..session import ProjectSession
 
 
+class ClipOrderTable(QTableWidget):
+    """Keep Qt's drag gesture, but commit a domain-level clip-ID reorder."""
+
+    reorderRequested = Signal(object)
+
+    def dropEvent(self, event):
+        source = self.currentRow()
+        if source < 0 or self.rowCount() < 2 or event.source() is not self:
+            event.ignore()
+            return
+        target = self.rowAt(round(event.position().y()))
+        if target < 0:
+            target = self.rowCount()
+        elif self.dropIndicatorPosition() == QAbstractItemView.DropIndicatorPosition.BelowItem:
+            target += 1
+        ids = [self.item(row, 0).data(Qt.ItemDataRole.UserRole) for row in range(self.rowCount())]
+        moved = ids.pop(source)
+        if target > source:
+            target -= 1
+        ids.insert(max(0, min(len(ids), target)), moved)
+        if ids != [self.item(row, 0).data(Qt.ItemDataRole.UserRole) for row in range(self.rowCount())]:
+            self.reorderRequested.emit(ids)
+        event.acceptProposedAction()
+
+
 class ProjectsPanel(QWidget):
     openRequested = Signal(str, object)
     mediaRequested = Signal(str)
     batchRequested = Signal()
+    clipRequested = Signal(str)
+    clipOrderRequested = Signal(object)
 
     def __init__(self, stt_panel, parent=None, *, session=None):
         super().__init__(parent)
         self.stt_panel = stt_panel
         self.session = session or ProjectSession(self)
         self.active_id = None
+        self.active_clip_id = None
         self._active_document = None
         self._active_review_key = None
         layout = QVBoxLayout(self)
@@ -36,7 +64,7 @@ class ProjectsPanel(QWidget):
         self.status = QLabel("New/Open project · external media references")
         self.status.setWordWrap(True)
         layout.addWidget(self.status)
-        self.table = QTableWidget(0, 3)
+        self.table = ClipOrderTable(0, 3)
         self.table.setHorizontalHeaderLabels(["Source", "Status", "Duration"])
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -45,7 +73,15 @@ class ProjectsPanel(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setDragEnabled(True)
+        self.table.setAcceptDrops(True)
+        self.table.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self.table.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.table.setDropIndicatorShown(True)
+        self.table.setToolTip("Drag a row to reorder playback and combined exports")
+        self.table.reorderRequested.connect(self.clipOrderRequested.emit)
         self.table.cellClicked.connect(self._select)
+        self.table.itemActivated.connect(lambda item: self._select(item.row(), item.column()))
         layout.addWidget(self.table, 1)
         self.session.changed.connect(self._refresh)
         self.session.statusChanged.connect(self.status.setText)
@@ -55,16 +91,9 @@ class ProjectsPanel(QWidget):
         return self.session.project
 
     def _open(self):
-        try:
-            root = projects_directory()
-            folder = QFileDialog.getExistingDirectory(self, "Open portable project", str(root))
-            if folder:
-                path = Path(folder).resolve()
-                if path.parent != root or not (path / "project.json").is_file():
-                    raise ValueError("Choose a project inside .projects alongside the app. Copy an entire legacy project folder there to restore it.")
-                self._open_folder(str(path))
-        except (OSError, ValueError) as exc:
-            self.status.setText(str(exc))
+        # Open the auto-discovered project browser rather than asking users
+        # to identify a UUID directory in the native folder picker.
+        self.window()._show_home()
 
     def _new(self):
         name, accepted = QInputDialog.getText(self, "New portable project", "Project name")
@@ -77,22 +106,7 @@ class ProjectsPanel(QWidget):
             self.status.setText(str(exc))
 
     def _recent(self):
-        try:
-            manifests = sorted(projects_directory().glob("*/project.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-            menu = QMenu(self)
-            for manifest in manifests[:10]:
-                try:
-                    name = json.loads(manifest.read_text(encoding="utf-8")).get("name", manifest.parent.name)
-                except (OSError, ValueError, AttributeError):
-                    name = manifest.parent.name
-                action = menu.addAction(str(name))
-                action.triggered.connect(lambda checked=False, folder=manifest.parent: self._open_folder(str(folder)))
-            if manifests:
-                menu.exec(self.cursor().pos())
-            else:
-                self.status.setText("No projects yet. Choose New to start.")
-        except OSError as exc:
-            self.status.setText(str(exc))
+        self._open()
 
     def _open_folder(self, folder):
         try:
@@ -100,7 +114,10 @@ class ProjectsPanel(QWidget):
             self.session.open(project)
             self.active_id = self._active_document = None
         except (OSError, ValueError, KeyError, TypeError) as exc:
-            self.status.setText(f"Cannot open project: {exc}")
+            message = f"Cannot open project: {exc}"
+            self.status.setText(message)
+            if hasattr(self.window(), "picker_status"):
+                self.window().picker_status.setText(message)
 
     def _add(self):
         if self.project is None:
@@ -116,7 +133,9 @@ class ProjectsPanel(QWidget):
 
     def _selected_item(self):
         row = self.table.currentRow()
-        return self.project.items[row] if self.project and 0 <= row < len(self.project.items) else None
+        if not self.project or not 0 <= row < len(self.project.clips):
+            return None
+        return self.project.get(self.project.clips[row].media_id)
 
     def _relink(self):
         item = self._selected_item()
@@ -135,11 +154,12 @@ class ProjectsPanel(QWidget):
         self.batchRequested.emit()
 
     def _refresh(self):
-        selected = self.active_id
-        self.table.setRowCount(len(self.project.items) if self.project else 0)
+        selected = self.active_clip_id
+        self.table.setRowCount(len(self.project.clips) if self.project else 0)
         if not self.project:
             return
-        for row, item in enumerate(self.project.items):
+        for row, clip in enumerate(self.project.clips):
+            item = self.project.get(clip.media_id)
             records = [r for r in self.project.analyses if r.media_id == item.id]
             latest_by_task = {record.task: record for record in records}
             latest = records[-1] if records else None
@@ -164,7 +184,7 @@ class ProjectsPanel(QWidget):
                 h, remainder = divmod(seconds, 3600)
                 m, sec = divmod(remainder, 60)
                 duration = f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
-            values = (Path(item.source).name, state, duration or "Probing…")
+            values = (f"{row + 1}. {Path(item.source).name}", state, duration or "Probing…")
             detail = " · ".join(f"{record.task}: {record.state}" for record in records)
             if item.status == "completed" and "stt" not in latest_by_task:
                 detail = "stt: completed" + (" · " + detail if detail else "")
@@ -172,18 +192,21 @@ class ProjectsPanel(QWidget):
                                             latest.error if latest else None]))
             for column, value in enumerate(values):
                 cell = QTableWidgetItem(value)
+                cell.setData(Qt.ItemDataRole.UserRole, clip.id)
                 cell.setToolTip(hint)
                 self.table.setItem(row, column, cell)
-            if item.id == selected:
+            if clip.id == selected:
                 self.table.selectRow(row)
-        self.status.setText(f"{self.project.name} · {len(self.project.items)} sources")
+        self.status.setText(f"{self.project.name} · {len(self.project.clips)} clips")
 
     def _select(self, row, column):
-        if not self.project or not 0 <= row < len(self.project.items):
+        if not self.project or not 0 <= row < len(self.project.clips):
             return
-        item = self.project.items[row]
+        clip = self.project.clips[row]
+        item = self.project.get(clip.media_id)
         self.active_id = item.id
-        self.mediaRequested.emit(item.id)
+        self.active_clip_id = clip.id
+        self.clipRequested.emit(clip.id)
         if item.status == "completed":
             self._active_review_key = item.settings_key
             self._active_document = self.project.review(item.id)
