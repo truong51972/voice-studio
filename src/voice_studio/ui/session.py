@@ -207,6 +207,7 @@ class ProjectSession(QObject):
                 if isinstance(context, AnalysisRecord) and context.state != snapshot.state:
                     context.state = snapshot.state
                     self.project.save()
+                    self.changed.emit()  # Reflect running instead of stale queued source status.
                 continue
             try:
                 if snapshot.state != "completed":
