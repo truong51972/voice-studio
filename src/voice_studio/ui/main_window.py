@@ -58,7 +58,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self.session.resultReady.connect(self._result_ready)
         self.session.partialReady.connect(self._partial_stt_ready)
         self.session.statusChanged.connect(self._status)
-        self.session.progressChanged.connect(self.stt_progress.show_progress)
+        self.session.progressChanged.connect(self._on_stt_progress)
         self.stt_panel.before_export = self._prepare_transcript_export
         self.session.prepare_result = self._before_result
         self.session.prepare_close = self._prepare_close
@@ -69,11 +69,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         self.playback.previewOutsideClip.connect(lambda outside: setattr(self, '_outside_clip', outside))
         self._player.playbackStateChanged.connect(self._on_playback_state)
         self._player.durationChanged.connect(self._on_player_duration)
-        try:
-            root = projects_directory()
-            self.picker_status.setText(f'Portable projects: {root}\nMedia stay external; moving the app does not move original recordings.')
-        except OSError as exc:
-            self.picker_status.setText(str(exc))
+        self.picker_status.clear()
 
 
     def _guard(self, callback, *args, **kwargs):
@@ -84,18 +80,38 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             return None
 
     def _status(self, text):
+        # Worker stages are displayed once by the contextual STT progress card;
+        # broadcasting long filenames to every panel produced duplicate status
+        # banners and obscured the video/transcript.
         self.statusBar().showMessage(text)
-        self.preview_status.setText(text)
-        self.picker_status.setText(text)
-        self.speakers_panel.status.setText(text)
-        self.stt_panel.status.setText(text)
-        self.summary_panel.status.setText(text)
-        for label in (self.preview_status, self.speakers_panel.status, self.stt_panel.status, self.summary_panel.status):
-            label.setToolTip(text)
-        self.cancel_button.setEnabled(bool(self.session.jobs))
-        self.cancel_button.setVisible(bool(self.session.jobs))
-        for panel in (self.stt_panel, self.diarization_panel, self.summary_panel):
-            panel.cancel_button.setEnabled(bool(self.session.jobs))
+        if self.pages.currentIndex() == 0:
+            self.picker_status.setText(text)
+        if str(text).startswith(("Playback failed", "Could not save", "Relink source")):
+            self.preview_status.setText(text)
+            self.preview_status.show()
+
+    def _on_stt_progress(self, info):
+        self.stt_progress.show_progress(info)
+        self.stt_panel.set_session_progress(info)
+
+    def _show_home(self):
+        if self.session.jobs:
+            self._status("Finish or cancel project jobs before leaving the editor.")
+            return
+        try:
+            self.session.close()  # Saves reviewed edits before changing workspace.
+        except (OSError, ValueError, RuntimeError) as exc:
+            self._status(f"Could not save project: {exc}")
+            return
+        self.session.project = None
+        self.playback.set_project(None)
+        self._project_id = self._clip_id = self._target_path = None
+        self.projects_panel.active_id = self.projects_panel.active_clip_id = None
+        self.projects_panel.table.setRowCount(0)
+        self.pages.setCurrentIndex(0)
+        self.editor_toolbar.hide()
+        self.project_browser.refresh()
+        self._update_actions()
 
     def _refresh_project(self):
         project = self.session.project
@@ -124,6 +140,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             self.timeline.set_bundle(None)
             self._project_position(0., 0.)
             self.pages.setCurrentIndex(1)
+            self.editor_toolbar.show()
             self._restore_ui(project.settings.get('ui', {}))
         self.target_label.setText(project.name)
         item = self._current_item()
@@ -267,7 +284,13 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         clip = self._current_clip()
         return self.session.project.get(clip.media_id) if clip else None
 
-    def _select_media(self, media_id):
+    def _select_clip(self, clip_id):
+        project = self.session.project
+        clip = next((c for c in project.clips if c.id == clip_id), None) if project else None
+        if clip is not None:
+            self._select_media(clip.media_id, clip_id=clip.id)
+
+    def _select_media(self, media_id, clip_id=None):
         project = self.session.project
         if project and media_id:
             if self.session.validating:
@@ -277,7 +300,8 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             if item.status in ('missing', 'changed'):
                 self._status(item.error or 'Relink the source first')
                 return
-            clip = next((c for c in project.clips if c.media_id == media_id), None)
+            clip = next((c for c in project.clips if c.id == clip_id), None) if clip_id else next(
+                (c for c in project.clips if c.media_id == media_id), None)
             if clip:
                 self._guard(self.playback.select_clip, clip.id)
 
@@ -293,7 +317,9 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         if changed:
             self.summary_panel.reset()
         self.projects_panel.active_id = item.id
-        self.projects_panel.table.selectRow(next(i for i, source in enumerate(self.session.project.items) if source.id == item.id))
+        self.projects_panel.active_clip_id = clip.id
+        self.projects_panel.table.selectRow(next(i for i, entry in enumerate(self.session.project.clips) if entry.id == clip.id))
+        self.preview_status.hide()
         self.speakers_panel.refresh(self.session.project, item.id)
         for field, value in ((self.clip_in, clip.source_in), (self.clip_out, clip.end(item.duration))):
             field.setMaximum(item.duration)
@@ -364,7 +390,14 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
         if project is None:
             raise ValueError('Create/open a project and import sources first')
         if all_sources or self.scope.currentIndex() == 1:
-            return [item.id for item in project.items if item.status not in ('missing', 'changed')]
+            ordered = []
+            seen = set()
+            for clip in project.clips:
+                item = project.get(clip.media_id)
+                if item.id not in seen and item.status not in ('missing', 'changed'):
+                    ordered.append(item.id)
+                    seen.add(item.id)
+            return ordered
         item = self._current_item()
         if item is None:
             raise ValueError('Select an imported source first')
@@ -515,6 +548,13 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 self._load_current_results(reload_review=task in ('stt', 'diarization'))
         if task == 'summary' and payload.get('scope') == 'project':
             self.summary_panel._show(payload)
+        if task == 'stt' and not any(
+            getattr(job, 'task', None) == 'stt' and getattr(job, 'media_id', None) != media_id
+            for job in self.session.jobs.values()
+        ):
+            # Completed STT should return screen space to reviewed transcript.
+            self.stt_progress.clear()
+            self.stt_panel.set_session_progress({'state': 'completed'})
         self._render_timeline()
 
     def _before_result(self, task, media_id):
@@ -600,6 +640,24 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
     def _preview_selection(self):
         self._guard(self.playback.preview, self._clip_id, self.selection_start.value(), self.selection_end.value())
 
+    def _reorder_clips(self, identifiers):
+        def reorder():
+            if self.session.jobs:
+                raise ValueError("Wait for project jobs to finish before reordering clips")
+            project = self.session.project
+            if not project:
+                return
+            self._save_project()  # Commit in-place transcript editing before rearrangement.
+            project.reorder_clips(list(identifiers))
+            self._render_timeline()
+            self.projects_panel._refresh()
+            clip = self._current_clip()
+            if clip is not None:
+                source = max(clip.source_in, min(self.playback.player.position() / 1000.,
+                                               clip.end(project.get(clip.media_id).duration)))
+                self._project_position(project.timeline().source_to_project(clip.id, source), source)
+        self._guard(reorder)
+
     def _move_clip(self, delta):
         def move():
             project = self.session.project
@@ -608,8 +666,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             target = index + delta
             if 0 <= target < len(identifiers):
                 identifiers[index], identifiers[target] = identifiers[target], identifiers[index]
-                project.reorder_clips(identifiers)
-                self._render_timeline()
+                self._reorder_clips(identifiers)
         self._guard(move)
 
     def _trim_clip(self):

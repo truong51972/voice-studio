@@ -41,6 +41,7 @@ class STTPanel(QWidget):
         self.export_range = None
         self.last_export_path: Path | None = None
         self.before_export = lambda: None
+        self._session_progress_state = None
         self._cue_index = SubtitleIndex()
         self._cue_rows = {}
         self._user_navigation_until = 0.
@@ -90,6 +91,8 @@ class STTPanel(QWidget):
         self.cancel_button = QPushButton("Cancel")
         self.cancel_button.setEnabled(False)
         self.cancel_button.clicked.connect(self.cancel)
+        if self.session is not None:
+            self.cancel_button.hide()  # The progress card owns the only STT cancel control.
         commands.addWidget(self.run_button)
         commands.addWidget(self.cancel_button)
         self.options_toggle = QPushButton("Options ▸")
@@ -136,6 +139,10 @@ class STTPanel(QWidget):
         self.search.setPlaceholderText("Search transcript…")
         self.search.textChanged.connect(self._filter)
         layout.addWidget(self.search)
+        self.empty_state = QLabel("Transcribe a source to generate an editable transcript.")
+        self.empty_state.setWordWrap(True)
+        self.empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.empty_state)
         editor_actions = QHBoxLayout()
         self.speaker_button = QPushButton("Speaker")
         self.speaker_button.clicked.connect(self._speaker)
@@ -166,6 +173,7 @@ class STTPanel(QWidget):
         self.table.viewport().installEventFilter(self)
         self.table.verticalScrollBar().sliderPressed.connect(self._mark_user_navigation)
         layout.addWidget(self.table, 1)
+        self._sync_empty_state()
         self.refresh_models()
         self._timer = QTimer(self)
         self._timer.setInterval(100)
@@ -195,6 +203,25 @@ class STTPanel(QWidget):
             device=device, compute_type=precision if device == "cuda" else "int8"
         )
 
+    def _sync_empty_state(self):
+        empty = self.document is None
+        processing = self._session_progress_state in ("queued", "running")
+        self.table.setVisible(not empty)
+        self.search.setVisible(not empty)
+        self.empty_state.setText(
+            "Transcript is being generated. You can continue reviewing the video."
+            if processing else "Transcribe a source to generate an editable transcript."
+        )
+        self.empty_state.setVisible(empty)
+        self.import_button.setEnabled(not processing)
+
+    def set_session_progress(self, info: dict) -> None:
+        self._session_progress_state = str(info.get("state", ""))
+        processing = self._session_progress_state in ("queued", "running")
+        self.run_button.setEnabled(not processing)
+        self.status.setVisible(not processing)
+        self._sync_empty_state()
+
     def set_media(self, source: str | None) -> None:
         if source == self._source:
             return
@@ -207,6 +234,7 @@ class STTPanel(QWidget):
         self.open_folder_button.setVisible(False)
         self.export_button.setEnabled(False)
         self.table.setRowCount(0)
+        self._sync_empty_state()
 
     def start(self) -> None:
         if self.session is not None:
@@ -256,6 +284,7 @@ class STTPanel(QWidget):
         self.raw_result = result
         self.document = TranscriptDocument(result)
         self._render()
+        self._sync_empty_state()
         self.export_button.setEnabled(True)
         issues = int(result.get("warning_count", 0))
         warning_note = f" · {issues} timestamp warning(s)" if issues else ""
@@ -276,7 +305,9 @@ class STTPanel(QWidget):
             "segments": [s.as_dict() for s in document.raw],
         }
         self._render()
+        self._sync_empty_state()
         self.export_button.setEnabled(True)
+        self.status.setText(f"{len(document.edited)} reviewed cues")
 
     def _render(self) -> None:
         if self.document is None:

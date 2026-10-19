@@ -1,7 +1,20 @@
 # Portable projects
 
-Use **Projects → New**, give the project a name, and **Import media** to select
-multiple recordings. **Open project** and **Recent** reopen existing projects.
+On launch, Home automatically discovers the direct child `.projects/*/project.json`
+manifests and lists projects by their **name**. Search, double-click or select
+**Open project**; no UUID folder selection is necessary. Home reads manifests
+without loading models, inspecting external media, migrating or modifying projects.
+Use **New project**, give the project a name, and **Import media** to select
+multiple recordings. **File → Projects / Home** returns to the list after saved
+edits and finished jobs. **File → Recent projects** shows names, not UUIDs.
+Home supports Rename and explicit Delete (saved analyses/reviews are removed,
+original linked recordings are never deleted). Back up a project before deleting.
+The Sources list displays ordered timeline **clips**, not the fixed import
+order. Drag a row to reorder or use Edit → Move clip earlier/later; playback and
+combined exports follow the persisted clip order. Whole-project STT queues
+unique media in first-appearance timeline order, without repeated inference for
+a media referenced by multiple clips. Reordering never changes source timestamps
+or invalidates cached STT/review revisions.
 The project editor uses one sequential source track/player, with source boundaries,
 basic trim/move controls, waveform peaks and speaker/STT annotations. Auto Detect
 is the default Speakers workflow; see [QA evidence](project_workspace_refactor.md).
@@ -36,9 +49,11 @@ media. Extract the new version into a new folder, then copy `.projects/` beside
 the new executable. Do not replace/delete the old portable folder until the new
 copy opens successfully. Release ZIPs exclude user `.projects/` data, and the
 build script refuses to overwrite a distribution containing `.projects/`, `.models/` or `.settings/`.
-There is no project cleanup on exit or automatic uninstaller. To delete a
-project, close the app, back up as needed and explicitly remove its project
-folder yourself; external media are unaffected.
+There is no project cleanup on exit or automatic uninstaller. Delete from
+Home requires confirmation; alternatively, with the app closed, back up as
+needed and remove its portable project folder. External linked media remain
+untouched. A project with an unreadable manifest is displayed for recovery
+rather than silently discarded from Home.
 
 ## Manifest migration and timeline contracts
 

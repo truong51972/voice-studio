@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, Q
 
 from .panels.stt import STTPanel
 from .panels.projects import ProjectsPanel
+from .project_browser import ProjectBrowser
 from .panels.diarization import DiarizationPanel
 from .panels.speakers import SpeakersPanel
 from .panels.summary import SummaryPanel
@@ -28,6 +29,9 @@ class EditorLayoutMixin:
         toolbar = QHBoxLayout()
         toolbar.addWidget(QLabel('<b>Voice Studio</b>'))
         self.stt_panel = STTPanel(self, session=self.session)
+        self.stt_progress = STTProgressStrip()
+        self.stt_panel.layout().insertWidget(0, self.stt_progress)
+        self.stt_progress.cancelRequested.connect(self.session.cancel)
         self.diarization_panel = DiarizationPanel(self, session=self.session)
         self.summary_panel = SummaryPanel(self.stt_panel, self, session=self.session)
         self.projects_panel = ProjectsPanel(self.stt_panel, self, session=self.session)
@@ -44,27 +48,17 @@ class EditorLayoutMixin:
         self.cancel_button.hide()
         self.models_button = self._button('Models', self._open_models, toolbar)
         self.models_button.hide()
-        root.addLayout(toolbar)
+        self.editor_toolbar = QWidget()
+        self.editor_toolbar.setLayout(toolbar)
+        self.editor_toolbar.hide()  # Home remains a dedicated project-focused screen.
+        root.addWidget(self.editor_toolbar)
         self.pages = QStackedWidget()
         root.addWidget(self.pages, 1)
-        picker = QWidget()
-        picker_layout = QVBoxLayout(picker)
-        picker_layout.addStretch()
-        title = QLabel('<h1>Open your audio/video project</h1>')
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        picker_layout.addWidget(title)
-        controls = QHBoxLayout()
-        controls.addStretch()
-        for text, callback in (('New project', self.projects_panel._new), ('Open project', self.projects_panel._open), ('Recent projects', self.projects_panel._recent)):
-            self._button(text, callback, controls)
-        controls.addStretch()
-        picker_layout.addLayout(controls)
-        self.picker_status = QLabel()
-        self.picker_status.setWordWrap(True)
-        self.picker_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        picker_layout.addWidget(self.picker_status)
-        picker_layout.addStretch()
-        self.pages.addWidget(picker)
+        self.project_browser = ProjectBrowser(self)
+        self.project_browser.newRequested.connect(self.projects_panel._new)
+        self.project_browser.openRequested.connect(self.projects_panel._open_folder)
+        self.picker_status = self.project_browser.status
+        self.pages.addWidget(self.project_browser)
         editor = QWidget()
         editor_layout = QVBoxLayout(editor)
         editor_layout.setContentsMargins(0, 0, 0, 0)
@@ -80,8 +74,6 @@ class EditorLayoutMixin:
         self.preview_status = QLabel('Import sources to begin')
         self.preview_status.setWordWrap(True)
         preview_layout.addWidget(self.preview_status)
-        self.stt_progress = STTProgressStrip()
-        preview_layout.addWidget(self.stt_progress)
         self.video_widget = PreviewVideoWidget()
         self._player.setVideoOutput(self.video_widget)
         preview_layout.addWidget(self.video_widget, 1)
@@ -176,7 +168,8 @@ class EditorLayoutMixin:
         self.root_splitter.setSizes([590, 290])
         editor_layout.addWidget(self.root_splitter)
         self.pages.addWidget(editor)
-        self.projects_panel.mediaRequested.connect(self._select_media)
+        self.projects_panel.clipRequested.connect(self._select_clip)
+        self.projects_panel.clipOrderRequested.connect(self._reorder_clips)
         self.projects_panel.openRequested.connect(self._open_project_media)
         self.projects_panel.batchRequested.connect(lambda: self._run_stt(all_sources=True))
         self.stt_panel.startRequested.connect(self._run_stt)
