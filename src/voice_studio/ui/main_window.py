@@ -308,6 +308,11 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
 
     def _clip_changed(self, clip_id):
         changed = clip_id != self._clip_id
+        if changed:
+            # A click on another source can happen while the transcript editor
+            # still holds uncommitted text; flush it before replacing its model.
+            self.stt_panel.commit_edit()
+            self.projects_panel.save_active_review(self.stt_panel.document)
         self._clip_id = clip_id
         item, clip = self._current_item(), self._current_clip()
         self._target_path = item.source
