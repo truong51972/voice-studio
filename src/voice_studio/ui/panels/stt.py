@@ -46,6 +46,7 @@ class STTPanel(QWidget):
         self._cue_rows = {}
         self._user_navigation_until = 0.
         self._active_cue_row = None
+        self._last_followed_row = None
         layout = QVBoxLayout(self)
         settings = QFormLayout()
         advanced = QFormLayout()
@@ -144,6 +145,7 @@ class STTPanel(QWidget):
         self.follow_playhead = QPushButton("Follow")
         self.follow_playhead.setCheckable(True)
         self.follow_playhead.setChecked(True)
+        self.follow_playhead.toggled.connect(lambda _enabled: setattr(self, '_last_followed_row', None))
         self.follow_playhead.setToolTip("Automatically scroll to the current cue without changing your selection")
         search_row.addWidget(self.follow_playhead)
         layout.addLayout(search_row)
@@ -182,6 +184,7 @@ class STTPanel(QWidget):
         self.table.itemDoubleClicked.connect(lambda _item: self.editingStarted.emit())
         self.table.cellClicked.connect(self._seek)
         self.table.viewport().installEventFilter(self)
+        self.table.installEventFilter(self)
         self.table.verticalScrollBar().sliderPressed.connect(self._mark_user_navigation)
         layout.addWidget(self.table, 1)
         self._sync_table_columns()
@@ -249,6 +252,7 @@ class STTPanel(QWidget):
         self.export_button.setEnabled(False)
         self.table.setRowCount(0)
         self._active_cue_row = None
+        self._last_followed_row = None
         self._cue_index.set_entries([])
         self._cue_rows = {}
         self._sync_empty_state()
@@ -330,6 +334,7 @@ class STTPanel(QWidget):
         if self.document is None:
             return
         self._active_cue_row = None
+        self._last_followed_row = None
         self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
         self.table.setSortingEnabled(False)
@@ -607,10 +612,12 @@ class STTPanel(QWidget):
     def _mark_user_navigation(self) -> None:
         # Playback should not steal focus/selection while a user reads or edits.
         self._user_navigation_until = monotonic() + 5.
+        self._last_followed_row = None
 
     def eventFilter(self, watched, event):  # noqa: N802
-        if watched is self.table.viewport() and event.type() in (
-                QEvent.Type.Wheel, QEvent.Type.MouseButtonPress):
+        if ((watched is self.table.viewport() and event.type() in (
+                QEvent.Type.Wheel, QEvent.Type.MouseButtonPress))
+                or (watched is self.table and event.type() == QEvent.Type.KeyPress)):
             self._mark_user_navigation()
         return super().eventFilter(watched, event)
 
@@ -619,24 +626,25 @@ class STTPanel(QWidget):
             return
         cue = self._cue_index.at(seconds)
         row = self._cue_rows.get(cue.id) if cue else None
-        if row == self._active_cue_row:
-            return
-        # Active playback is a highlight, not table selection. Selecting a row
-        # on every media tick used to destroy multi-cue user selections.
-        with QSignalBlocker(self.table):
-            for index, brush in ((self._active_cue_row, QBrush()),
-                                 (row, QBrush(QColor("#244752")))):
-                if index is not None and 0 <= index < self.table.rowCount():
-                    for column in range(self.table.columnCount()):
-                        cell = self.table.item(index, column)
-                        if cell is not None:
-                            cell.setBackground(brush)
-        self._active_cue_row = row
-        if (row is not None and not self.table.isRowHidden(row)
+        if row != self._active_cue_row:
+            # Active playback is a highlight, not table selection. Selecting a
+            # row on every media tick used to destroy multi-cue selections.
+            with QSignalBlocker(self.table):
+                for index, brush in ((self._active_cue_row, QBrush()),
+                                     (row, QBrush(QColor("#244752")))):
+                    if index is not None and 0 <= index < self.table.rowCount():
+                        for column in range(self.table.columnCount()):
+                            cell = self.table.item(index, column)
+                            if cell is not None:
+                                cell.setBackground(brush)
+            self._active_cue_row = row
+        if (row is not None and row != self._last_followed_row
+                and not self.table.isRowHidden(row)
                 and self.follow_playhead.isChecked()
                 and monotonic() >= self._user_navigation_until):
             self.table.scrollToItem(self.table.item(row, 3),
                                     QAbstractItemView.ScrollHint.PositionAtCenter)
+            self._last_followed_row = row
 
     def commit_edit(self):
         if self.table.state() == QAbstractItemView.State.EditingState:
