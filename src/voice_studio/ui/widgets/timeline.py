@@ -5,6 +5,7 @@ from __future__ import annotations
 from PySide6.QtCore import QPoint, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygon
 from PySide6.QtWidgets import QScrollBar, QWidget
+from bisect import bisect_left, bisect_right
 from math import floor, log10
 from time import monotonic
 
@@ -29,6 +30,9 @@ class EditorTimelineWidget(QWidget):
         self._project_map = None
         self._sources = []
         self._annotations = []
+        self._sorted_annotations = []
+        self._sorted_starts = []
+        self._max_annotation_span = 0.
         self._zoom = 1.
         self._pan = 0.
         self._drag_start = None
@@ -272,9 +276,7 @@ class EditorTimelineWidget(QWidget):
     def set_project_data(self, mapping, sources, annotations):
         self._project_map = mapping
         self._sources = sources
-        self._annotations = annotations
-        self._lane_names = list(dict.fromkeys(a["lane"] for a in annotations))
-        self._lane_positions = {name: index for index, name in enumerate(self._lane_names)}
+        self._replace_annotations(annotations)
         self._duration = mapping.duration if mapping else 0.
         self.update()
 
@@ -290,11 +292,18 @@ class EditorTimelineWidget(QWidget):
             self.viewChanged.emit(self._zoom, self._pan)
         self.update()
 
-    def update_annotations(self, annotations):
-        """Replace annotation data without discarding waveform and clip caches."""
+    def _replace_annotations(self, annotations):
         self._annotations = annotations
         self._lane_names = list(dict.fromkeys(a["lane"] for a in annotations))
         self._lane_positions = {name: i for i, name in enumerate(self._lane_names)}
+        self._sorted_annotations = sorted(annotations, key=lambda a: a["start"])
+        self._sorted_starts = [a["start"] for a in self._sorted_annotations]
+        self._max_annotation_span = max(
+            (a["end"] - a["start"] for a in annotations), default=0.)
+
+    def update_annotations(self, annotations):
+        """Replace annotation data without discarding waveform and clip caches."""
+        self._replace_annotations(annotations)
         self.update()
 
     def set_selection(self, clip_id, start, end):
@@ -374,7 +383,11 @@ class EditorTimelineWidget(QWidget):
         self._track_scroll.setVisible(len(lanes) > visible)
         offset = self._track_scroll.value()
         height = max(22, (rect.height() - 56) // max(1, min(visible, len(lanes))))
-        for annotation in self._annotations:
+        # Qt repaints on every playback position update. Only visit cues
+        # intersecting the viewport instead of walking a full long transcript.
+        first = bisect_left(self._sorted_starts, start - self._max_annotation_span)
+        last = bisect_right(self._sorted_starts, start + span)
+        for annotation in self._sorted_annotations[first:last]:
             lane = lane_positions[annotation["lane"]] - offset
             if lane < 0 or lane >= visible:
                 continue
