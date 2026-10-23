@@ -146,8 +146,13 @@ class ModelService:
         return record
 
     def status(self, model: ModelDescriptor) -> ModelStatus:
-        path = self.path(model)
+        # Resolve inside the error boundary: an unsafe managed path is a
+        # model availability problem, never a fatal Qt refresh exception.
+        path = self.root / CATEGORIES[model.task] / model.id
+        if model.task == "locator":
+            path /= model.required_assets[0]
         try:
+            path = self.path(model)
             if not self.directory(model).exists():
                 return ModelStatus("Not installed", path)
             record = self._record(model)

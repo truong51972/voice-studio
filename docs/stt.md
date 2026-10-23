@@ -27,6 +27,12 @@ STT jobs show a compact progress strip near the preview: source filename, select
 After processing, open the **STT** inspector and use **Export transcript…** next to the reviewed result. Choose current source, selected source range or clip-ordered whole project. The default is **WebVTT (.vtt)**, with SRT, TXT, Markdown and JSON available. You can also **Import .vtt/.srt…** to correct an existing transcript. Project `reviews/*.vtt` files are editable subtitle tracks (legacy JSON-only projects upgrade when saved); JSON remains for raw inference/metadata. The File menu has the same export and import actions. **View → Show subtitles** toggles time-aligned soft subtitles in the media preview; no burned-in video is created.
 
 Current scope: offline bounded-chunk STT with project persistence and review/export.
+
+### Interrupted jobs and timestamp recovery
+
+In a project, STT saves a resumable JSON checkpoint after each **completed** audio chunk under `cache/stt-checkpoints/`. The checkpoint key includes the original source fingerprint and all model/inference options, including the model revision. Re-running Transcribe with the same source/model/options skips fully checkpointed chunks and appends the remaining cues; a changed source, model, or option starts a separate job. Successful project analysis removes its checkpoint **after** the finalized result is saved. Failed/cancelled jobs retain the checkpoint and can show the partial cues for current-source export/review; partial cues are *not* a completed project analysis. Do not edit checkpoint JSON manually.
+
+Whisper sometimes reports estimated segment/word timestamps outside a bounded chunk, or non-finite/reversed ranges. Voice Studio now skips malformed/out-of-window cues, clips valid overhanging cues to the actual chunk, and records bounded timestamp warnings in the raw result instead of failing the whole file. This can drop a malformed cue's text; review the transcript/subtitles after a warning. No automatic cross-chunk correction or overlap stitching is currently performed.
 GPU support is enabled behind a device-specific native inference probe; actual hardware and packaged Windows acceptance is still pending. Current real-model
 accuracy in Vietnamese/English is *unmeasured* until #12 benchmarks
 and smoke tests run.

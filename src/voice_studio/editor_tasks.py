@@ -248,7 +248,8 @@ def run_editor_task(inputs: dict, progress) -> dict:
     if action == "stt":
         from .stt import STTOptions, transcribe
         payload = transcribe(target, STTOptions(**{k: v for k, v in options.items() if k != "model_revision"}),
-                             progress=progress, total_seconds=inputs.get("source_duration"))
+                             progress=progress, total_seconds=inputs.get("source_duration"),
+                             checkpoint_path=inputs.get("checkpoint_path"))
     elif action == "diarization":
         from .diarization import diarize
         payload = diarize(target, options["model_directory"], work_directory=Path(inputs.get('work_directory', directory / 'cache')))

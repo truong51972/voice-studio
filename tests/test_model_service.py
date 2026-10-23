@@ -235,3 +235,22 @@ def test_complete_community_folder_validation(service, tmp_path):
     (folder / "config.yaml").write_text("pipeline:\n  name: arbitrary.module.Class\n")
     with pytest.raises(ValueError, match="Only"):
         service.import_local(model, folder)
+
+
+def test_unsafe_managed_symlink_is_incomplete_instead_of_crashing_refresh(service, model, tmp_path):
+    """Status is a read-only UI query; install/remove must still reject escapes."""
+    outside = tmp_path / "external"
+    outside.mkdir()
+    category = service.root / "speaker_matching"
+    category.mkdir(parents=True)
+    try:
+        (category / model.id).symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Directory symlinks require elevated permissions on this Windows host")
+    status = service.status(model)
+    assert status.state == "Incomplete"
+    assert "symlink" in status.detail
+    assert status.path == category / model.id / "tiny.onnx"
+    with pytest.raises(ValueError, match="symlink"):
+        service.install(model)
+    assert outside.is_dir()

@@ -286,8 +286,12 @@ class STTPanel(QWidget):
         self._render()
         self._sync_empty_state()
         self.export_button.setEnabled(True)
+        issues = int(result.get("warning_count", 0))
+        warning_note = f" · {issues} timestamp warning(s)" if issues else ""
+        partial_note = "Partial · " if result.get("partial") else ""
         self.status.setText(
-            f"{len(self.document.edited)} transcript segments · {result['duration']:.1f}s"
+            f"{partial_note}{len(self.document.edited)} transcript segments · "
+            f"{result['duration']:.1f}s{warning_note}"
         )
         self.resultReady.emit(result)
 
