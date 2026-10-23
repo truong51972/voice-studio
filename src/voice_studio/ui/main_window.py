@@ -212,6 +212,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                     "end": map_time(clip, clip_start, end, item.duration, to_source=False),
                     "lane": "Transcript", "text": entry.text, "color": "#8fa4bd",
                     "overlap": False, "kind": "transcript", "media_id": item.id,
+                    "clip_id": clip.id,
                 })
         # Keep the Transcript lane at its original visual position while
         # replacing only its cue annotations, instead of making it jump below
@@ -254,7 +255,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
                 if end > start:
                     annotations.append({'start': map_time(clip, mapping.starts[clip.id], start, item.duration, to_source=False),
                                         'end': map_time(clip, mapping.starts[clip.id], end, item.duration, to_source=False),
-                                        'lane': lane, 'text': text, 'color': color,
+                                        'clip_id': clip.id, 'lane': lane, 'text': text, 'color': color,
                                         'overlap': overlap, 'kind': kind, 'media_id': item.id})
             diarization = project.latest_analysis(item.id, 'diarization')
             if diarization:
@@ -343,6 +344,7 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
             document = project.review(item.id)
             self.projects_panel._active_document = document
             self.projects_panel._active_review_key = item.settings_key
+            self.projects_panel._saved_review_version = (id(document), document.revision)
             self.stt_panel.load_document(document)
         elif item.status != 'completed' and reload_review and self.stt_panel.document is None:
             # Reopen saved partial cues for a failed/cancelled source without
@@ -640,23 +642,57 @@ class MainWindow(EditorActionsMixin, EditorLayoutMixin, LocatorPanelsMixin, QMai
     def _preview_selection(self):
         self._guard(self.playback.preview, self._clip_id, self.selection_start.value(), self.selection_end.value())
 
+    def _remap_timeline_after_reorder(self):
+        """Remap cached source-local data; never reread STT/diarization on reorder."""
+        project = self.session.project
+        previous = self.timeline._project_map
+        sources = self.timeline._sources
+        annotations = self.timeline._annotations
+        if previous is None or len(sources) != len(project.clips):
+            return False
+        by_clip = {source['clip'].id: source for source in sources}
+        if set(by_clip) != {clip.id for clip in project.clips}:
+            return False
+        if any(a.get('clip_id') not in by_clip for a in annotations):
+            return False
+        mapping = project.timeline()
+        offsets = {clip.id: mapping.starts[clip.id] - previous.starts[clip.id]
+                   for clip in project.clips}
+        remapped = [{**a, 'start': a['start'] + offsets[a['clip_id']],
+                     'end': a['end'] + offsets[a['clip_id']]} for a in annotations]
+        self.timeline.set_project_data(
+            mapping, [by_clip[clip.id] for clip in project.clips], remapped)
+        self.position_slider.setMaximum(round(mapping.duration * 1000))
+        self.summary_label.setText(f'{len(project.clips)} clips · project {_fmt_time(mapping.duration)}')
+        return True
+
     def _reorder_clips(self, identifiers):
-        def reorder():
+        project = self.session.project
+        if not project:
+            return
+        try:
             if self.session.jobs:
                 raise ValueError("Wait for project jobs to finish before reordering clips")
-            project = self.session.project
-            if not project:
+            identifiers = list(identifiers)
+            if identifiers == [clip.id for clip in project.clips]:
                 return
-            self._save_project()  # Commit in-place transcript editing before rearrangement.
-            project.reorder_clips(list(identifiers))
-            self._render_timeline()
+            # Qt editor commit emits documentChanged and saves only if edited;
+            # don't serialize every reviewed subtitle or save the manifest twice.
+            self.stt_panel.commit_edit()
+            self.projects_panel.save_active_review(self.stt_panel.document)
+            project.reorder_clips(identifiers)
+            if not self._remap_timeline_after_reorder():
+                self._render_timeline()  # First load or legacy unkeyed annotations.
             self.projects_panel._refresh()
             clip = self._current_clip()
             if clip is not None:
                 source = max(clip.source_in, min(self.playback.player.position() / 1000.,
                                                clip.end(project.get(clip.media_id).duration)))
                 self._project_position(project.timeline().source_to_project(clip.id, source), source)
-        self._guard(reorder)
+        except (ValueError, OSError, KeyError, StopIteration, TypeError, RuntimeError) as exc:
+            self._status(str(exc))
+            # Restore the source list after failed/blocked drops.
+            self.projects_panel._refresh()
 
     def _move_clip(self, delta):
         def move():
