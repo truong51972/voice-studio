@@ -220,6 +220,8 @@ class STTPanel(QWidget):
         processing = self._session_progress_state in ("queued", "running")
         self.table.setVisible(not empty)
         self.search.setVisible(not empty)
+        self.follow_playhead.setVisible(not empty)
+        self.edit_menu.setEnabled(not empty)
         self.empty_state.setText(
             "Transcript is being generated. You can continue reviewing the video."
             if processing else "Transcribe a source to generate an editable transcript."
