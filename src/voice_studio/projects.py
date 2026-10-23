@@ -212,8 +212,14 @@ class ProjectStore:
         if identifiers == [clip.id for clip in self.clips]:
             return
         clips = {clip.id: clip for clip in self.clips}
+        previous = self.clips
         self.clips = [clips[key] for key in identifiers]
-        self.save()
+        try:
+            self.save()
+        except Exception:
+            # Keep the UI/model consistent with the still-current manifest.
+            self.clips = previous
+            raise
 
     def trim_clip(self, identifier: str, source_in: float, source_out: float) -> None:
         index = next(i for i, c in enumerate(self.clips) if c.id == identifier)
