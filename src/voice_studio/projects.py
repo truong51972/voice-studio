@@ -209,9 +209,17 @@ class ProjectStore:
     def reorder_clips(self, identifiers: list[str]) -> None:
         if len(identifiers) != len(self.clips) or set(identifiers) != {c.id for c in self.clips}:
             raise ValueError("Reorder must contain every clip exactly once")
+        if identifiers == [clip.id for clip in self.clips]:
+            return
         clips = {clip.id: clip for clip in self.clips}
+        previous = self.clips
         self.clips = [clips[key] for key in identifiers]
-        self.save()
+        try:
+            self.save()
+        except Exception:
+            # Keep the UI/model consistent with the still-current manifest.
+            self.clips = previous
+            raise
 
     def trim_clip(self, identifier: str, source_in: float, source_out: float) -> None:
         index = next(i for i, c in enumerate(self.clips) if c.id == identifier)

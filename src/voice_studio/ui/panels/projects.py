@@ -3,7 +3,7 @@ from dataclasses import asdict
 import json
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QInputDialog,
                                QHeaderView, QLabel, QMenu, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
@@ -18,24 +18,42 @@ class ClipOrderTable(QTableWidget):
 
     reorderRequested = Signal(object)
 
+    @staticmethod
+    def reordered_ids(ids: list[str], source: int, target: int) -> list[str]:
+        """Calculate the new clip order without mutating Qt's table model."""
+        if not 0 <= source < len(ids):
+            raise ValueError("Invalid drag source")
+        target = max(0, min(len(ids), target))
+        result = list(ids)
+        moved = result.pop(source)
+        if target > source:
+            target -= 1
+        result.insert(target, moved)
+        return result
+
     def dropEvent(self, event):
-        source = self.currentRow()
+        selected = self.selectionModel().selectedRows()
+        source = selected[0].row() if len(selected) == 1 else -1
         if source < 0 or self.rowCount() < 2 or event.source() is not self:
             event.ignore()
             return
+        indicator = self.dropIndicatorPosition()
         target = self.rowAt(round(event.position().y()))
         if target < 0:
-            target = self.rowCount()
-        elif self.dropIndicatorPosition() == QAbstractItemView.DropIndicatorPosition.BelowItem:
+            target = 0 if event.position().y() < 0 else self.rowCount()
+        elif (indicator == QAbstractItemView.DropIndicatorPosition.BelowItem or
+              (indicator == QAbstractItemView.DropIndicatorPosition.OnItem and
+               event.position().y() >= self.visualItemRect(self.item(target, 0)).center().y())):
+            # A drop onto the bottom half of an item means insert after it.
             target += 1
-        ids = [self.item(row, 0).data(Qt.ItemDataRole.UserRole) for row in range(self.rowCount())]
-        moved = ids.pop(source)
-        if target > source:
-            target -= 1
-        ids.insert(max(0, min(len(ids), target)), moved)
-        if ids != [self.item(row, 0).data(Qt.ItemDataRole.UserRole) for row in range(self.rowCount())]:
-            self.reorderRequested.emit(ids)
+        current = [self.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                   for row in range(self.rowCount())]
+        ordered = self.reordered_ids(current, source, target)
         event.acceptProposedAction()
+        if ordered != current:
+            # Never rebuild/reset a QTableWidget from inside its active dropEvent:
+            # the view is still processing the drag and holds row/model indices.
+            QTimer.singleShot(0, lambda ids=ordered: self.reorderRequested.emit(ids))
 
 
 class ProjectsPanel(QWidget):
@@ -53,6 +71,7 @@ class ProjectsPanel(QWidget):
         self.active_clip_id = None
         self._active_document = None
         self._active_review_key = None
+        self._saved_review_version = None
         layout = QVBoxLayout(self)
         buttons = QHBoxLayout()
         buttons.addWidget(QLabel("Sources"), 1)
@@ -214,13 +233,20 @@ class ProjectsPanel(QWidget):
         if item.status == "completed":
             self._active_review_key = item.settings_key
             self._active_document = self.project.review(item.id)
+            self._saved_review_version = (id(self._active_document), self._active_document.revision)
             self.openRequested.emit(item.source, self._active_document)
         else:
             self._active_document = None
 
     def save_active_review(self, document):
-        if self.project and self.active_id and document is self._active_document and document is not None:
-            self.project.save_review(self.active_id, document, settings_key=self._active_review_key)
+        if not (self.project and self.active_id and
+                document is self._active_document and document is not None):
+            return
+        version = (id(document), document.revision)
+        if version == self._saved_review_version:
+            return
+        self.project.save_review(self.active_id, document, settings_key=self._active_review_key)
+        self._saved_review_version = version
 
     def _export(self):
         # Both File → Export project transcript and the STT result action use

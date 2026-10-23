@@ -5,11 +5,11 @@ from pathlib import Path
 import os
 from time import monotonic
 
-from PySide6.QtCore import QEvent, Qt, QTimer, Signal, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal, QUrl, QSignalBlocker
+from PySide6.QtGui import QBrush, QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemDelegate, QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout,
-    QHBoxLayout, QInputDialog, QLabel, QPushButton, QLineEdit,
+    QHBoxLayout, QInputDialog, QLabel, QPushButton, QLineEdit, QMenu, QToolButton,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -45,6 +45,8 @@ class STTPanel(QWidget):
         self._cue_index = SubtitleIndex()
         self._cue_rows = {}
         self._user_navigation_until = 0.
+        self._active_cue_row = None
+        self._last_followed_row = None
         layout = QVBoxLayout(self)
         settings = QFormLayout()
         advanced = QFormLayout()
@@ -138,31 +140,42 @@ class STTPanel(QWidget):
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search transcript…")
         self.search.textChanged.connect(self._filter)
-        layout.addWidget(self.search)
+        search_row = QHBoxLayout()
+        search_row.addWidget(self.search, 1)
+        self.follow_playhead = QPushButton("Follow")
+        self.follow_playhead.setCheckable(True)
+        self.follow_playhead.setChecked(True)
+        self.follow_playhead.toggled.connect(lambda _enabled: setattr(self, '_last_followed_row', None))
+        self.follow_playhead.setToolTip("Automatically scroll to the current cue without changing your selection")
+        search_row.addWidget(self.follow_playhead)
+        layout.addLayout(search_row)
         self.empty_state = QLabel("Transcribe a source to generate an editable transcript.")
         self.empty_state.setWordWrap(True)
         self.empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.empty_state)
-        editor_actions = QHBoxLayout()
-        self.speaker_button = QPushButton("Speaker")
-        self.speaker_button.clicked.connect(self._speaker)
-        self.split_button = QPushButton("Split")
-        self.split_button.clicked.connect(self._split)
-        self.merge_button = QPushButton("Merge")
-        self.merge_button.clicked.connect(self._merge)
-        self.reset_button = QPushButton("Revert")
-        self.reset_button.clicked.connect(self._reset)
-        for button in (
-            self.speaker_button, self.split_button, self.merge_button,
-            self.reset_button,
-        ):
-            editor_actions.addWidget(button)
-        layout.addLayout(editor_actions)
+        edit_row = QHBoxLayout()
+        edit_row.addWidget(QLabel("Reviewed cues"), 1)
+        self.edit_menu = QToolButton()
+        self.edit_menu.setText("Edit cue ▾")
+        self.edit_menu.setToolTip("Select one or more transcript cues, then choose an edit action")
+        self.edit_menu.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        menu = QMenu(self.edit_menu)
+        menu.addAction("Assign speaker…", self._speaker)
+        menu.addAction("Split cue…", self._split)
+        menu.addAction("Merge selected cues", self._merge)
+        menu.addSeparator()
+        menu.addAction("Revert reviewed cues", self._reset)
+        self.edit_menu.setMenu(menu)
+        edit_row.addWidget(self.edit_menu)
+        layout.addLayout(edit_row)
         self.table = QTableWidget(0, 4)
         self.table.setHorizontalHeaderLabels(["Start", "End", "Speaker", "Text"])
-        self.table.setColumnWidth(0, 62)
-        self.table.setColumnWidth(1, 62)
-        self.table.setColumnWidth(2, 78)
+        self.table.setColumnWidth(0, 86)
+        self.table.setColumnWidth(1, 86)
+        self.table.setColumnWidth(2, 100)
+        self.table.setWordWrap(True)
+        self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.table.verticalHeader().setDefaultSectionSize(43)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -171,8 +184,10 @@ class STTPanel(QWidget):
         self.table.itemDoubleClicked.connect(lambda _item: self.editingStarted.emit())
         self.table.cellClicked.connect(self._seek)
         self.table.viewport().installEventFilter(self)
+        self.table.installEventFilter(self)
         self.table.verticalScrollBar().sliderPressed.connect(self._mark_user_navigation)
         layout.addWidget(self.table, 1)
+        self._sync_table_columns()
         self._sync_empty_state()
         self.refresh_models()
         self._timer = QTimer(self)
@@ -208,6 +223,8 @@ class STTPanel(QWidget):
         processing = self._session_progress_state in ("queued", "running")
         self.table.setVisible(not empty)
         self.search.setVisible(not empty)
+        self.follow_playhead.setVisible(not empty)
+        self.edit_menu.setEnabled(not empty)
         self.empty_state.setText(
             "Transcript is being generated. You can continue reviewing the video."
             if processing else "Transcribe a source to generate an editable transcript."
@@ -234,6 +251,10 @@ class STTPanel(QWidget):
         self.open_folder_button.setVisible(False)
         self.export_button.setEnabled(False)
         self.table.setRowCount(0)
+        self._active_cue_row = None
+        self._last_followed_row = None
+        self._cue_index.set_entries([])
+        self._cue_rows = {}
         self._sync_empty_state()
 
     def start(self) -> None:
@@ -312,7 +333,11 @@ class STTPanel(QWidget):
     def _render(self) -> None:
         if self.document is None:
             return
+        self._active_cue_row = None
+        self._last_followed_row = None
+        self.table.setUpdatesEnabled(False)
         self.table.blockSignals(True)
+        self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self.document.edited))
         for i, s in enumerate(self.document.edited):
             for col, text in enumerate((
@@ -322,8 +347,14 @@ class STTPanel(QWidget):
                 item = QTableWidgetItem(str(text))
                 if col != 3:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if col in (0, 1, 2):
+                    item.setToolTip(f"{_fmt_time(s.start)} – {_fmt_time(s.end)} · "
+                                    f"{self.speaker_names.get(s.speaker_id, s.speaker_id) or 'Unknown'}")
+                elif col == 3:
+                    item.setToolTip(s.text)
                 self.table.setItem(i, col, item)
         self.table.blockSignals(False)
+        self.table.setUpdatesEnabled(True)
         self._cue_index.set_entries(self.document.edited)
         self._cue_rows = {entry.id: index for index, entry in enumerate(self.document.edited)}
         self._filter(self.search.text())
@@ -333,7 +364,9 @@ class STTPanel(QWidget):
             return
         valid = set(self.document.find(text))
         for row in range(self.table.rowCount()):
-            self.table.setRowHidden(row, row not in valid)
+            hidden = row not in valid
+            if self.table.isRowHidden(row) != hidden:
+                self.table.setRowHidden(row, hidden)
 
     def _edit_text(self, item: QTableWidgetItem) -> None:
         if self.document is None or item.column() != 3:
@@ -563,28 +596,55 @@ class STTPanel(QWidget):
         if self.document is not None and row < len(self.document.edited):
             self.seekRequested.emit(float(self.document.edited[row].start))
 
+    def _sync_table_columns(self):
+        # A narrow right inspector must reserve space for the actual text.
+        compact = self.width() < 540
+        self.table.setColumnHidden(1, compact)
+        self.table.setColumnWidth(0, 78 if compact else 86)
+        self.table.setColumnWidth(2, 90 if compact else 108)
+        self.table.setHorizontalHeaderLabels(
+            ["Start", "End", "Speaker", "Text"])
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(event)
+        self._sync_table_columns()
+
     def _mark_user_navigation(self) -> None:
         # Playback should not steal focus/selection while a user reads or edits.
         self._user_navigation_until = monotonic() + 5.
+        self._last_followed_row = None
 
     def eventFilter(self, watched, event):  # noqa: N802
-        if watched is self.table.viewport() and event.type() in (
-                QEvent.Type.Wheel, QEvent.Type.MouseButtonPress):
+        if ((watched is self.table.viewport() and event.type() in (
+                QEvent.Type.Wheel, QEvent.Type.MouseButtonPress))
+                or (watched is self.table and event.type() == QEvent.Type.KeyPress)):
             self._mark_user_navigation()
         return super().eventFilter(watched, event)
 
     def set_playhead(self, seconds: float) -> None:
         if self.document is None or self.table.state() == QAbstractItemView.State.EditingState:
             return
-        if monotonic() < self._user_navigation_until:
-            return
         cue = self._cue_index.at(seconds)
         row = self._cue_rows.get(cue.id) if cue else None
-        if row is not None and not self.table.isRowHidden(row):
-            if self.table.currentRow() != row:
-                self.table.selectRow(row)
-                self.table.scrollToItem(self.table.item(row, 3),
-                                        QAbstractItemView.ScrollHint.PositionAtCenter)
+        if row != self._active_cue_row:
+            # Active playback is a highlight, not table selection. Selecting a
+            # row on every media tick used to destroy multi-cue selections.
+            with QSignalBlocker(self.table):
+                for index, brush in ((self._active_cue_row, QBrush()),
+                                     (row, QBrush(QColor("#244752")))):
+                    if index is not None and 0 <= index < self.table.rowCount():
+                        for column in range(self.table.columnCount()):
+                            cell = self.table.item(index, column)
+                            if cell is not None:
+                                cell.setBackground(brush)
+            self._active_cue_row = row
+        if (row is not None and row != self._last_followed_row
+                and not self.table.isRowHidden(row)
+                and self.follow_playhead.isChecked()
+                and monotonic() >= self._user_navigation_until):
+            self.table.scrollToItem(self.table.item(row, 3),
+                                    QAbstractItemView.ScrollHint.PositionAtCenter)
+            self._last_followed_row = row
 
     def commit_edit(self):
         if self.table.state() == QAbstractItemView.State.EditingState:

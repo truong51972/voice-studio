@@ -20,7 +20,7 @@ def test_stt_uses_existing_qt_media_player_and_inspector():
         app.processEvents()
 
 
-def test_large_transcript_follows_current_cue_but_respects_manual_navigation():
+def test_large_transcript_highlights_playhead_without_stealing_selection():
     app = create_application([])
     window = build_app()
     try:
@@ -31,14 +31,23 @@ def test_large_transcript_follows_current_cue_but_respects_manual_navigation():
                           "text": f"Sentence {i}"} for i in range(1200)],
         })
         assert panel._cue_rows["cue-1000"] == 1000
+        panel.table.selectRow(100)
         panel.set_playhead(2001.)
-        assert panel.table.currentRow() == 1000
+        assert panel._active_cue_row == 1000
+        assert panel.table.currentRow() == 100  # Manual selection is never replaced.
+        assert panel.table.item(1000, 3).background().color().name() == "#244752"
         panel._mark_user_navigation()
+        previous_scroll = panel.table.verticalScrollBar().value()
         panel.set_playhead(1.)
-        assert panel.table.currentRow() == 1000
+        assert panel._active_cue_row == 0
+        assert panel.table.currentRow() == 100
+        assert panel.table.verticalScrollBar().value() == previous_scroll
+        assert panel.table.item(1000, 3).background().style().name == "NoBrush"
+        panel.follow_playhead.setChecked(False)
         panel._user_navigation_until = 0
-        panel.set_playhead(1.)
-        assert panel.table.currentRow() == 0
+        panel.set_playhead(2001.)
+        assert panel.table.verticalScrollBar().value() == previous_scroll
+        assert panel.table.currentRow() == 100
     finally:
         window.close()
         app.processEvents()
