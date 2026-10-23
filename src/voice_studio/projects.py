@@ -209,6 +209,8 @@ class ProjectStore:
     def reorder_clips(self, identifiers: list[str]) -> None:
         if len(identifiers) != len(self.clips) or set(identifiers) != {c.id for c in self.clips}:
             raise ValueError("Reorder must contain every clip exactly once")
+        if identifiers == [clip.id for clip in self.clips]:
+            return
         clips = {clip.id: clip for clip in self.clips}
         self.clips = [clips[key] for key in identifiers]
         self.save()
