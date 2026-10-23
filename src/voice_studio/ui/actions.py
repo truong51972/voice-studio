@@ -98,9 +98,6 @@ class EditorActionsMixin:
         self.stt_panel.table.setContextMenuPolicy(Qt.ContextMenuPolicy.ActionsContextMenu)
         for key in ("speaker", "split", "merge", "revert", "export_stt"):
             self.stt_panel.table.addAction(self.actions[key])
-        for button in (self.stt_panel.speaker_button, self.stt_panel.split_button,
-                       self.stt_panel.merge_button, self.stt_panel.reset_button):
-            button.hide()
         app = QApplication.instance()
         app.installEventFilter(self)
         self._action_timer = QTimer(self)
