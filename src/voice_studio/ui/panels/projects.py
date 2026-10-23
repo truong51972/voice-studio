@@ -38,13 +38,13 @@ class ClipOrderTable(QTableWidget):
             event.ignore()
             return
         indicator = self.dropIndicatorPosition()
-        if indicator == QAbstractItemView.DropIndicatorPosition.OnItem:
-            event.ignore()  # Reordering is between rows, not onto a source.
-            return
         target = self.rowAt(round(event.position().y()))
         if target < 0:
-            target = self.rowCount()
-        elif indicator == QAbstractItemView.DropIndicatorPosition.BelowItem:
+            target = 0 if event.position().y() < 0 else self.rowCount()
+        elif (indicator == QAbstractItemView.DropIndicatorPosition.BelowItem or
+              (indicator == QAbstractItemView.DropIndicatorPosition.OnItem and
+               event.position().y() >= self.visualItemRect(self.item(target, 0)).center().y())):
+            # A drop onto the bottom half of an item means insert after it.
             target += 1
         current = [self.item(row, 0).data(Qt.ItemDataRole.UserRole)
                    for row in range(self.rowCount())]
