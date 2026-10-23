@@ -71,7 +71,8 @@ def test_source_sidebar_is_compact_and_stt_actions_move_to_context_menu():
                           if button.parentWidget() is window.projects_panel]
         assert [button.text() for button in source_buttons] == ["+"]
         assert window.models_button.isHidden()
-        assert window.stt_panel.split_button.isHidden()
+        assert window.stt_panel.edit_menu.menu().actions()
+        assert window.stt_panel.edit_menu.text() == "Edit cue ▾"
         assert window.stt_panel.table.actions()
         assert "Not installed" in window.stt_panel.model.itemText(0)
     finally:
